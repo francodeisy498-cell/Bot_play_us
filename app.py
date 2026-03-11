@@ -6,7 +6,7 @@ from google.genai import types
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE VARIABLES (RAILWAY) ---
+# --- CONFIGURACIÓN DE VARIABLES (RAILWAY/RENDER) ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
@@ -15,11 +15,9 @@ VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 # Cliente Gemini 2026 - Versión compatible
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Cambia el ID por este (incluyendo el prefijo completo)
-MODEL_ID = "models/gemini-1.5-flash"
+# ID del modelo CORREGIDO (Sin espacios y con el nombre exacto)
+MODEL_ID = "gemini-1.5-flash"
 
-# Diccionario para mantener el hilo de la conversación por cada usuario
-# Nota: En producción masiva, considera usar Redis para que no se borre al reiniciar
 chat_sessions = {}
 
 SYSTEM_INSTRUCTION = """
@@ -62,7 +60,6 @@ def send_whatsapp(to_phone, text):
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    # VERIFICACIÓN DEL WEBHOOK
     if request.method == "GET":
         mode = request.args.get("hub.mode")
         token = request.args.get("hub.verify_token")
@@ -71,20 +68,18 @@ def webhook():
             return challenge, 200
         return "Error", 403
 
-    # RECEPCIÓN DE MENSAJES
     data = request.get_json()
     try:
+        # Validar que lleguen mensajes
         if "messages" in data["entry"][0]["changes"][0]["value"]:
             msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
             phone = msg["from"]
-            
-            # Detectar si es texto o imagen (comprobante)
             msg_type = msg.get("type")
             
             if msg_type == "text":
                 user_text = msg["text"]["body"]
                 
-                # Gestión de Memoria: Si no existe sesión para este número, se crea
+                # Gestión de Memoria
                 if phone not in chat_sessions:
                     chat_sessions[phone] = client.chats.create(
                         model=MODEL_ID,
@@ -94,13 +89,11 @@ def webhook():
                         )
                     )
                 
-                # Enviar mensaje al chat persistente
                 response = chat_sessions[phone].send_message(user_text)
                 bot_reply = response.text
                 send_whatsapp(phone, bot_reply)
 
             elif msg_type == "image":
-                # Respuesta rápida si envían el comprobante
                 confirmacion = "¡Súper! Recibí la imagen. Dame un momentico la valido y ya te pido los datos para empezar con tu canción. 🎵✨"
                 send_whatsapp(phone, confirmacion)
             
