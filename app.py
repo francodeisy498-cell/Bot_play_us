@@ -20,22 +20,27 @@ MODEL_ID = "gemini-2.5-flash"
 chat_sessions = {}
 image_timers = {} 
 human_mode = {} 
+image_counts = {}
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
-Los pagos salen a nombre de Deivid Franco.
+Los pagos se hacen a nombre de Deivid Franco.
 
 ESTILO DE ESCRITURA (HUMANIZADO):
 - Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
-- VARIEDAD COLOMBIANA: Alterna con otras expresiones como: "de una", "dale", "listo", "chevere", "bacano", "imagínate", "qué nota", "oiga", "vea".
-- RESPUESTAS CORTAS: Máximo 2 mensajes cortos. No mandes testamentos. Nada de listas ni viñetas.
+- VARIEDAD COLOMBIANA: Alterna con otras expresiones como: "de una", "dale", "listo", "chévere", "bacano", "imagínate", "qué nota", "oiga", "vea".
+- RESPUESTAS CORTAS: Máximo 2 mensajes cortos. No envíes testamentos. Nada de listas ni viñetas.
 
 REGLAS DE ORO DE VENTA:
 1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
 2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única.
 3. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
 4. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890. A nombre de Deivid Franco.
-5. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho, di que el equipo va a validar y que ya casi siguen. Después de esto, no hables más.
+5. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho, indica que el equipo va a validar el pago y que ya casi siguen con los detalles. Después de esto, no hables más.
+
+REGLAS DE IMÁGENES:
+1. PAGO (1 FOTO): Si el sistema te indica que llegó SOLO 1 FOTO, agradécele mucho por el pago, indica que el equipo va a validar el pago y que ya casi seguimos. Luego no hables más.
+2. VIDEO (2+ FOTOS): Si el sistema te indica que llegaron VARIAS FOTOS, di que están hermosas y pide los detalles que falten para la letra.
 """
 
 def send_whatsapp(to_phone, text):
@@ -60,6 +65,28 @@ def handle_delayed_response(phone):
         except Exception as e:
             print(f"Error en timer: {e}")
 
+def handle_image_logic(phone):
+    """Espera para saber cuántas fotos envió el cliente"""
+    time.sleep(30)
+
+    if phone in image_counts and phone not in human_mode:
+        count = image_counts[phone]
+        del image_counts[phone]
+
+        try:
+            if count == 1:
+                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (probablemente comprobante de pago). Agradécele mucho y dile que el equipo va a validar el pago y que ya casi seguimos."
+            else:
+                prompt = "SISTEMA: El cliente envió VARIAS FOTOS para el video. Dile que están hermosas y pídele los detalles que falten para la letra."
+
+            response = chat_sessions[phone].send_message(prompt)
+            send_whatsapp(phone, response.text)
+
+        except Exception as e:
+            print(f"Error en lógica de imágenes: {e}")
+
+# Para solucionar el problema de las ráfagas de fotos y que el bot entienda que 1 foto es pago y 2+ fotos son para el video, he modificado el bloque de imágenes para que utilice un contador.
+
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
@@ -83,7 +110,7 @@ def webhook():
                     model=MODEL_ID,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.6
+                        temperature=0.4 # Bajamos temperatura para evitar bucles
                     )
                 )
 
@@ -91,25 +118,22 @@ def webhook():
                 user_text = msg["text"]["body"].lower()
                 if any(x in user_text for x in ["pagué", "enviado", "comprobante", "listo el pago"]):
                     human_mode[phone] = True
-                    reply = "¡qué nota! mil gracias por el apoyo. voy a pasarle esto al equipo para que validen de una y ya casi seguimos con los detalles de tu canción. un segundito. ✨"
+                    reply = "¡Qué nota! Mil gracias por el apoyo. Voy a pasarle esto al equipo para que validen de una y ya casi seguimos con los detalles de tu canción. Un segundito. ✨"
                     send_whatsapp(phone, reply)
                 else:
                     response = chat_sessions[phone].send_message(msg["text"]["body"])
                     send_whatsapp(phone, response.text)
 
+            # --- PARTE MODIFICADA PARA IMÁGENES ---
             elif msg_type == "image":
-                caption = msg.get("image", {}).get("caption", "").lower()
-                es_pago = any(x in caption for x in ["pago", "nequi", "comprobante", "enviado", "daviplata"])
-
-                if es_pago:
-                    human_mode[phone] = True
-                    reply = "recibido el comprobante, ¡mil gracias! dame un momentico que validen el ingreso y ya te pido los datos para la letra. 🎵"
-                    send_whatsapp(phone, reply)
+                # Iniciamos o aumentamos el contador de fotos para este usuario
+                if phone not in image_counts:
+                    image_counts[phone] = 1
+                    # Usamos handle_image_logic para decidir tras esperar 30 segundos
+                    threading.Thread(target=handle_image_logic, args=(phone,)).start()
                 else:
-                    if phone not in image_timers:
-                        image_timers[phone] = True
-                        thread = threading.Thread(target=handle_delayed_response, args=(phone,))
-                        thread.start()
+                    image_counts[phone] += 1
+            # ---------------------------------------
 
             elif msg_type == "audio":
                 response = chat_sessions[phone].send_message("SISTEMA: El cliente mandó audio. Dile que no puedes oírlo ahorita.")
