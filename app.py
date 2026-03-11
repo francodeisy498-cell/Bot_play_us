@@ -68,24 +68,21 @@ def handle_delayed_response(phone):
 def handle_image_logic(phone):
     """Espera para saber cuántas fotos envió el cliente"""
     time.sleep(30)
-
     if phone in image_counts and phone not in human_mode:
         count = image_counts[phone]
         del image_counts[phone]
-
         try:
             if count == 1:
-                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (probablemente comprobante de pago). Agradécele mucho y dile que el equipo va a validar el pago y que ya casi seguimos."
+                # ACTIVAMOS MODO HUMANO PARA EL PAGO
+                human_mode[phone] = True
+                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (pago). Dile de forma divertida que recibiste el pago, que el equipo valida y que en 12-24 horas queda lista."
             else:
                 prompt = "SISTEMA: El cliente envió VARIAS FOTOS para el video. Dile que están hermosas y pídele los detalles que falten para la letra."
-
+            
             response = chat_sessions[phone].send_message(prompt)
             send_whatsapp(phone, response.text)
-
         except Exception as e:
             print(f"Error en lógica de imágenes: {e}")
-
-# Para solucionar el problema de las ráfagas de fotos y que el bot entienda que 1 foto es pago y 2+ fotos son para el video, he modificado el bloque de imágenes para que utilice un contador.
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
@@ -102,7 +99,12 @@ def webhook():
             phone = msg["from"]
             msg_type = msg.get("type")
 
+            # --- ESCUDO ANTI-SECUESTRO CORREGIDO ---
             if phone in human_mode:
+                if human_mode[phone] == True:
+                    reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y te traigo esa joya. ¡yo te aviso apenas quede lista! ✨"
+                    send_whatsapp(phone, reply_tranqui)
+                    human_mode[phone] = "AVISADO" 
                 return "OK", 200
 
             if phone not in chat_sessions:
@@ -110,7 +112,7 @@ def webhook():
                     model=MODEL_ID,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.4 # Bajamos temperatura para evitar bucles
+                        temperature=0.4
                     )
                 )
 
@@ -124,16 +126,12 @@ def webhook():
                     response = chat_sessions[phone].send_message(msg["text"]["body"])
                     send_whatsapp(phone, response.text)
 
-            # --- PARTE MODIFICADA PARA IMÁGENES ---
             elif msg_type == "image":
-                # Iniciamos o aumentamos el contador de fotos para este usuario
                 if phone not in image_counts:
                     image_counts[phone] = 1
-                    # Usamos handle_image_logic para decidir tras esperar 30 segundos
                     threading.Thread(target=handle_image_logic, args=(phone,)).start()
                 else:
                     image_counts[phone] += 1
-            # ---------------------------------------
 
             elif msg_type == "audio":
                 response = chat_sessions[phone].send_message("SISTEMA: El cliente mandó audio. Dile que no puedes oírlo ahorita.")
@@ -145,6 +143,5 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    # Ajustado para que Render detecte el puerto correctamente
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
