@@ -8,7 +8,7 @@ from google.genai import types
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN (Tus variables de Render) ---
+# --- CONFIGURACIÓN ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
@@ -18,8 +18,8 @@ client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1be
 MODEL_ID = "gemini-2.5-flash"
 
 chat_sessions = {}
-image_timers = {} # Para agrupar las fotos
-human_mode = {} # Para que deje de responder tras el pago
+image_timers = {} 
+human_mode = {} 
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
@@ -75,7 +75,6 @@ def webhook():
             phone = msg["from"]
             msg_type = msg.get("type")
 
-            # SI YA PAGÓ, ALEJA NO RESPONDE MÁS
             if phone in human_mode:
                 return "OK", 200
 
@@ -90,7 +89,6 @@ def webhook():
 
             if msg_type == "text":
                 user_text = msg["text"]["body"].lower()
-                # Detectar si el texto confirma pago
                 if any(x in user_text for x in ["pagué", "enviado", "comprobante", "listo el pago"]):
                     human_mode[phone] = True
                     reply = "¡qué nota! mil gracias por el apoyo. voy a pasarle esto al equipo para que validen de una y ya casi seguimos con los detalles de tu canción. un segundito. ✨"
@@ -101,7 +99,6 @@ def webhook():
 
             elif msg_type == "image":
                 caption = msg.get("image", {}).get("caption", "").lower()
-                # Si la imagen tiene texto de pago o es un mensaje solo, asumimos pago
                 es_pago = any(x in caption for x in ["pago", "nequi", "comprobante", "enviado", "daviplata"])
 
                 if es_pago:
@@ -109,7 +106,6 @@ def webhook():
                     reply = "recibido el comprobante, ¡mil gracias! dame un momentico que validen el ingreso y ya te pido los datos para la letra. 🎵"
                     send_whatsapp(phone, reply)
                 else:
-                    # Si es foto normal, entra al timer de 30 segundos
                     if phone not in image_timers:
                         image_timers[phone] = True
                         thread = threading.Thread(target=handle_delayed_response, args=(phone,))
@@ -125,4 +121,6 @@ def webhook():
     return "OK", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    # Ajustado para que Render detecte el puerto correctamente
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
