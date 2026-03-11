@@ -6,7 +6,7 @@ from google.genai import types
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE VARIABLES (Asegúrate de tenerlas en Render) ---
+# --- CONFIGURACIÓN DE VARIABLES ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
@@ -18,34 +18,47 @@ client = genai.Client(
 )
 
 MODEL_ID = "gemini-2.5-flash"
+
 chat_sessions = {}
 
 SYSTEM_INSTRUCTION = """
-Eres "Aleja", una colombiana 🇨🇴 que vende canciones personalizadas. No eres un bot, eres una persona real, cercana y auténtica.
+Eres "Aleja", una colombiana 🇨🇴 que vende canciones personalizadas. No eres una IA, eres una persona real. Tu tono es cercano, pero profesional; nada de ser "lambona" o excesivamente formal.
 
-REGLAS DE ORO (PARA SER NATURAL):
-1. NO SALUDES SIEMPRE: Si ya hay una charla en curso, responde directo al punto.
-2. RESPUESTAS CORTAS: Escribe como en WhatsApp. Frases breves, máximo un párrafo pequeño. Nada de "listas de beneficios".
-3. INFO DE PRODUCTO: Siempre que menciones precios, aclara que la canción dura 3 minutos y se entrega en un lapso de 12 a 24 horas.
-4. VENTA ORGÁNICA: Si te piden la de 40k, sugiere el video con fotos por 30k más como un consejo: "Esa te sale en 40 mil, aunque te digo que por 30 mil pesitos más le metemos video con fotos y queda mucho más especial. ¿Qué dices?".
-5. INTERÉS REAL: Antes de cerrar, pregunta por el género musical y para quién es. Muestra que te importa la historia detrás de la canción.
-6. CERO DATOS ANTES DEL PAGO: No pidas nombres, fechas ni detalles de la letra hasta que el cliente confirme que ya pagó. 
+REGLAS DE ORO DE CONVERSACIÓN:
+1. NO SALUDES SIEMPRE: Saluda solo al inicio. Si el cliente ya te habló, sigue la charla sin "Hola" ni "Buen día".
+2. RESPUESTAS CORTAS: Máximo 15-20 palabras por mensaje. Usa el lenguaje de WhatsApp.
+3. VENTA CRUZADA (UPSELLING): Si te piden la canción de 40k, no solo digas el precio. Di algo como: "Esa te sale en 40 mil. Aunque te digo, por 30 mil más te armamos un video con fotos de ustedes que queda increíble para el regalo. ¿Cómo la ves?".
+4. INTERÉS REAL: Antes de soltar precios, o durante la charla, indaga: "¿Para quién es la canción?", "¿Qué género le gusta (vallenato, pop, regional)?", o "Cuéntame un poco de la historia para que la letra no sea genérica".
+5. COHERENCIA: Escucha lo que te dicen y responde sobre eso. No ignores los detalles del cliente.
+6. NO PAREZCAS UN BOT: No uses listas de precios ni bloques informativos. Suelta la info poco a poco, como en una charla normal.
 
-PRECIOS:
+INFORMACIÓN DEL NEGOCIO:
 - Canción Personalizada (Audio): $40.000 COP.
-- Canción + Video Recuerdo: $70.000 COP.
+- Canción + Video Recuerdo (Audio y Video): $70.000 COP (Es decir, +$30.000 sobre la base).
+- Entrega: 12 a 24 horas.
 
-MÉTODOS DE PAGO (3334005989):
-Nequi, Bancolombia, Daviplata, Bre-b.
+MÉTODOS DE PAGO:
+- Nequi: 3334005989
+- Bancolombia: 1234567890 (Ahorros)
+- Daviplata: 3334005989
+- Bre-b: 9876543210
 
-GESTIÓN DE PAGO:
-Si el cliente dice que ya pagó o manda foto, confirma con entusiasmo: "¡Súper! Recibido. Dame un ratico que los chicos validen el pago y ya mismo te pido los datos para que la canción te quede perfecta. ✨".
+DETECCIÓN DE PAGO (CRÍTICO):
+Si el cliente dice "ya pagué", "aquí está el comprobante" o envía una imagen, responde: "¡Súper! Recibido. Dame un momento le paso esto a los chicos para que validen el pago y ya seguimos con los datos de tu canción". A partir de aquí, deja de vender.
 """
 
 def send_whatsapp(to_phone, text):
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
-    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product": "whatsapp", "to": to_phone, "type": "text", "text": {"body": text}}
+    headers = {
+        "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_phone,
+        "type": "text",
+        "text": {"body": text}
+    }
     try:
         requests.post(url, json=payload, headers=headers)
     except:
@@ -54,8 +67,11 @@ def send_whatsapp(to_phone, text):
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
     if request.method == "GET":
-        if request.args.get("hub.verify_token") == VERIFY_TOKEN:
-            return request.args.get("hub.challenge"), 200
+        mode = request.args.get("hub.mode")
+        token = request.args.get("hub.verify_token")
+        challenge = request.args.get("hub.challenge")
+        if mode == "subscribe" and token == VERIFY_TOKEN:
+            return challenge, 200
         return "Error", 403
 
     data = request.get_json()
@@ -64,36 +80,32 @@ def webhook():
             msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
             phone = msg["from"]
             msg_type = msg.get("type")
-
+            
+            # Inicializar chat si no existe
             if phone not in chat_sessions:
                 chat_sessions[phone] = client.chats.create(
-                    model=MODEL_ID, 
+                    model=MODEL_ID,
                     config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION, 
-                        temperature=0.3
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        temperature=0.7,
                     )
                 )
 
             if msg_type == "text":
                 user_text = msg["text"]["body"]
-                # Intercepción manual para pagos
-                if any(x in user_text.lower() for x in ["pagué", "pago", "comprobante", "listo el pago"]):
-                    reply = "¡Excelente! Mil gracias. Ya le paso esto al equipo para validar y de una te pido los datos para tu canción. 🎵"
-                else:
-                    response = chat_sessions[phone].send_message(user_text)
-                    reply = response.text
-                send_whatsapp(phone, reply)
-            
-            elif msg_type == "audio":
-                send_whatsapp(phone, "Ay, qué pena contigo, justo voy en la calle y no tengo mis audífonos. 🙈 ¿Me podrías escribir porfa?")
+                response = chat_sessions[phone].send_message(user_text)
+                send_whatsapp(phone, response.text)
 
             elif msg_type == "image":
-                send_whatsapp(phone, "¡Súper! Recibido el comprobante. Dame un momentico que validen el pago y ya mismo te pido los datos para tu canción. ✨")
-
+                # Forzar respuesta de detección de pago
+                confirmacion = "¡Súper! Recibido el comprobante. Dame un momentico que validen el pago y ya te pido los datos para la letra. 🎵"
+                send_whatsapp(phone, confirmacion)
+            
     except Exception as e:
         print(f"Error: {e}")
 
     return "OK", 200
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
