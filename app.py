@@ -19,10 +19,11 @@ MODEL_ID = "gemini-2.5-flash"
 
 chat_sessions = {}
 image_timers = {} # Para agrupar las fotos
+human_mode = {} # Para que deje de responder tras el pago
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
-Los pagos salen a nombre de Dei** Fra***.
+Los pagos salen a nombre de Deivid Franco.
 
 ESTILO DE ESCRITURA (HUMANIZADO):
 - Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
@@ -31,16 +32,10 @@ ESTILO DE ESCRITURA (HUMANIZADO):
 
 REGLAS DE ORO DE VENTA:
 1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
-2. INDAGACIÓN: Antes de cerrar, pregunta: "¿Qué es lo que más te gusta de esa persona?" o "¿Es para un aniversario o cumple?". Haz que sientan que la letra será única.
-3. VENTA CRUZADA: Sugiere el video de 70k como un plus emocional, no como un vendedor de tienda.
-4. NO SALUDES DOBLE: Si el cliente ya escribió, no digas "Hola". Ve directo al punto.
-5. DATOS CLAVE: Menciona que dura 3 min y entrega en 12-24h solo cuando el cliente pregunte o estén acordando el pedido.
-6. FOTOS: Si elige video, pide las fotos. Si las envía, agradécele y dile que están hermosas.
-7. INFO DE PAGOS (Solo si preguntan): Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890. A nombre de Dei** Fra***.
-
-GESTIÓN DE AUDIOS E IMÁGENES:
-- Si el sistema avisa de audio: "Ay qué pena, no puedo escuchar audios ahorita. ¿Me escribes lo que me dijiste? Así lo anoto de una vez".
-
+2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única.
+3. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
+4. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890. A nombre de Deivid Franco.
+5. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho, di que el equipo va a validar y que ya casi siguen. Después de esto, no hables más.
 """
 
 def send_whatsapp(to_phone, text):
@@ -54,11 +49,11 @@ def send_whatsapp(to_phone, text):
         pass
 
 def handle_delayed_response(phone):
-    """Espera 30 segundos para que lleguen todas las fotos antes de responder."""
+    """Espera 30 segundos para agrupar fotos del video."""
     time.sleep(30)
-    if phone in image_timers:
+    if phone in image_timers and phone not in human_mode:
         del image_timers[phone]
-        prompt = "SISTEMA: El cliente terminó de mandar las fotos. Dile que están hermosas y pídele ahora sí los detalles para la letra."
+        prompt = "SISTEMA: El cliente terminó de mandar las fotos del video. Dile que están hermosas y pídele ahora sí los detalles para la letra."
         try:
             response = chat_sessions[phone].send_message(prompt)
             send_whatsapp(phone, response.text)
@@ -80,6 +75,10 @@ def webhook():
             phone = msg["from"]
             msg_type = msg.get("type")
 
+            # SI YA PAGÓ, ALEJA NO RESPONDE MÁS
+            if phone in human_mode:
+                return "OK", 200
+
             if phone not in chat_sessions:
                 chat_sessions[phone] = client.chats.create(
                     model=MODEL_ID,
@@ -90,14 +89,31 @@ def webhook():
                 )
 
             if msg_type == "text":
-                response = chat_sessions[phone].send_message(msg["text"]["body"])
-                send_whatsapp(phone, response.text)
+                user_text = msg["text"]["body"].lower()
+                # Detectar si el texto confirma pago
+                if any(x in user_text for x in ["pagué", "enviado", "comprobante", "listo el pago"]):
+                    human_mode[phone] = True
+                    reply = "¡qué nota! mil gracias por el apoyo. voy a pasarle esto al equipo para que validen de una y ya casi seguimos con los detalles de tu canción. un segundito. ✨"
+                    send_whatsapp(phone, reply)
+                else:
+                    response = chat_sessions[phone].send_message(msg["text"]["body"])
+                    send_whatsapp(phone, response.text)
 
             elif msg_type == "image":
-                if phone not in image_timers:
-                    image_timers[phone] = True
-                    thread = threading.Thread(target=handle_delayed_response, args=(phone,))
-                    thread.start()
+                caption = msg.get("image", {}).get("caption", "").lower()
+                # Si la imagen tiene texto de pago o es un mensaje solo, asumimos pago
+                es_pago = any(x in caption for x in ["pago", "nequi", "comprobante", "enviado", "daviplata"])
+
+                if es_pago:
+                    human_mode[phone] = True
+                    reply = "recibido el comprobante, ¡mil gracias! dame un momentico que validen el ingreso y ya te pido los datos para la letra. 🎵"
+                    send_whatsapp(phone, reply)
+                else:
+                    # Si es foto normal, entra al timer de 30 segundos
+                    if phone not in image_timers:
+                        image_timers[phone] = True
+                        thread = threading.Thread(target=handle_delayed_response, args=(phone,))
+                        thread.start()
 
             elif msg_type == "audio":
                 response = chat_sessions[phone].send_message("SISTEMA: El cliente mandó audio. Dile que no puedes oírlo ahorita.")
