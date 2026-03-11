@@ -6,37 +6,30 @@ from google.genai import types
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN DE VARIABLES (RAILWAY/RENDER) ---
+# --- CONFIGURACIÓN DE VARIABLES ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
 PHONE_NUMBER_ID = os.getenv("PHONE_NUMBER_ID")
 VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 
-# Cliente Gemini 2026 - Versión compatible
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Cliente configurado para la versión v1beta que muestra tu consola
+client = genai.Client(
+    api_key=GEMINI_API_KEY,
+    http_options={'api_version': 'v1beta'}
+)
 
-# ID del modelo CORREGIDO (Sin espacios y con el nombre exacto)
-MODEL_ID = "gemini-1.5-flash"
+# EL ID EXACTO QUE SALIÓ EN TU CONSOLA
+MODEL_ID = "gemini-2.5-flash"
 
 chat_sessions = {}
 
 SYSTEM_INSTRUCTION = """
-Eres "Luna", una asistente de ventas colombiana 🇨🇴 para una tienda de canciones personalizadas. 
-Tu objetivo es ser BREVE, amable y muy natural. No parezcas un contestador automático.
-
-REGLAS DE ORO PARA CHATEAR:
-1. Máximo 2 párrafos cortos por mensaje. ¡No mandes testamentos!
-2. No des toda la info de una. Primero saluda y pregunta para quién es la canción o qué celebran.
-3. Usa emojis con moderación (ej: 🎵, ✨, 😊).
-4. Usa un tono cercano (ej: "¡Hola!", "¡Qué nota!", "Con todo gusto").
-
-FLUJO DE VENTA:
-- PASO 1: Saludo y pregunta por el motivo (cumpleaños, aniversario, etc).
-- PASO 2: Ofrece los paquetes: 
-    * "Melodía Pura" (Solo audio) por $40.000 COP.
-    * "Video Recuerdo" (Audio + Video lyric) por $70.000 COP.
-- PASO 3: Si el cliente quiere comprar, dile que recibes: Bancolombia, Nequi, Daviplata y Bre-B.
-- PASO 4: Una vez paguen, diles que te pasen el comprobante para pedirles los datos de la letra.
+Eres "Luna", una asistente de ventas colombiana 🇨🇴. 
+Tu objetivo es ser BREVE, amable y natural. 
+Ofreces canciones personalizadas: 
+- "Melodía Pura" ($40.000 COP).
+- "Video Recuerdo" ($70.000 COP).
+Usa emojis 🎵, ✨. Tono cercano y servicial.
 """
 
 def send_whatsapp(to_phone, text):
@@ -53,8 +46,6 @@ def send_whatsapp(to_phone, text):
     }
     try:
         r = requests.post(url, json=payload, headers=headers)
-        if r.status_code != 200:
-            print(f"Error Meta: {r.text}")
     except Exception as e:
         print(f"Error de red: {e}")
 
@@ -70,16 +61,13 @@ def webhook():
 
     data = request.get_json()
     try:
-        # Validar que lleguen mensajes
         if "messages" in data["entry"][0]["changes"][0]["value"]:
             msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
             phone = msg["from"]
-            msg_type = msg.get("type")
             
-            if msg_type == "text":
+            if msg.get("type") == "text":
                 user_text = msg["text"]["body"]
                 
-                # Gestión de Memoria
                 if phone not in chat_sessions:
                     chat_sessions[phone] = client.chats.create(
                         model=MODEL_ID,
@@ -90,12 +78,7 @@ def webhook():
                     )
                 
                 response = chat_sessions[phone].send_message(user_text)
-                bot_reply = response.text
-                send_whatsapp(phone, bot_reply)
-
-            elif msg_type == "image":
-                confirmacion = "¡Súper! Recibí la imagen. Dame un momentico la valido y ya te pido los datos para empezar con tu canción. 🎵✨"
-                send_whatsapp(phone, confirmacion)
+                send_whatsapp(phone, response.text)
             
     except Exception as e:
         print(f"Error procesando webhook: {e}")
