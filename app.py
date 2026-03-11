@@ -14,7 +14,7 @@ VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN")
 
 # Cliente Gemini 2026
 client = genai.Client(api_key=GEMINI_API_KEY)
-MODEL_ID = "gemini-2.0-flash"
+MODEL_ID = "gemini-1.5-flash"
 
 # Diccionario para mantener el hilo de la conversación por cada usuario
 # Nota: En producción masiva, considera usar Redis para que no se borre al reiniciar
