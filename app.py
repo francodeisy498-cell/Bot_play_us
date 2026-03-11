@@ -49,33 +49,20 @@ def send_whatsapp(to_phone, text):
     payload = {"messaging_product": "whatsapp", "to": to_phone, "type": "text", "text": {"body": text}}
     try:
         r = requests.post(url, json=payload, headers=headers)
-        print(f"Meta responde: {r.status_code}")
-    except:
-        pass
-
-def handle_delayed_response(phone):
-    """Espera 30 segundos para agrupar fotos del video."""
-    time.sleep(30)
-    if phone in image_timers and phone not in human_mode:
-        del image_timers[phone]
-        prompt = "SISTEMA: El cliente terminó de mandar las fotos del video. Dile que están hermosas y pídele ahora sí los detalles para la letra."
-        try:
-            response = chat_sessions[phone].send_message(prompt)
-            send_whatsapp(phone, response.text)
-        except Exception as e:
-            print(f"Error en timer: {e}")
+        print(f"Enviado a {to_phone}. Estado: {r.status_code}")
+    except Exception as e:
+        print(f"Error enviando WhatsApp: {e}")
 
 def handle_image_logic(phone):
-    """Espera para saber cuántas fotos envió el cliente"""
+    """Espera 30 segundos para saber cuántas fotos envió el cliente"""
     time.sleep(30)
     if phone in image_counts and phone not in human_mode:
         count = image_counts[phone]
         del image_counts[phone]
         try:
             if count == 1:
-                # ACTIVAMOS MODO HUMANO PARA EL PAGO
                 human_mode[phone] = True
-                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (pago). Dile de forma divertida que recibiste el pago, que el equipo valida y que en 12-24 horas queda lista."
+                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (pago). Dile: ¡recibido! 🚀 voy a pasarle esto al equipo. recuerda que en 12-24 horitas la tienes lista; yo misma te aviso apenas esté melo todo. ¡qué nota! 🎵"
             else:
                 prompt = "SISTEMA: El cliente envió VARIAS FOTOS para el video. Dile que están hermosas y pídele los detalles que falten para la letra."
             
@@ -99,7 +86,7 @@ def webhook():
             phone = msg["from"]
             msg_type = msg.get("type")
 
-            # --- ESCUDO ANTI-SECUESTRO CORREGIDO ---
+            # --- ESCUDO ANTI-SECUESTRO ---
             if phone in human_mode:
                 if human_mode[phone] == True:
                     reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y te traigo esa joya. ¡yo te aviso apenas quede lista! ✨"
@@ -110,17 +97,14 @@ def webhook():
             if phone not in chat_sessions:
                 chat_sessions[phone] = client.chats.create(
                     model=MODEL_ID,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.4
-                    )
+                    config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.4)
                 )
 
             if msg_type == "text":
                 user_text = msg["text"]["body"].lower()
                 if any(x in user_text for x in ["pagué", "enviado", "comprobante", "listo el pago"]):
                     human_mode[phone] = True
-                    reply = "¡Qué nota! Mil gracias por el apoyo. Voy a pasarle esto al equipo para que validen de una y ya casi seguimos con los detalles de tu canción. Un segundito. ✨"
+                    reply = "¡recibido! 🚀 voy a pasarle esto al equipo. recuerda que en 12-24 horitas la tienes lista; yo misma te aviso apenas esté melo todo. ¡qué nota! 🎵"
                     send_whatsapp(phone, reply)
                 else:
                     response = chat_sessions[phone].send_message(msg["text"]["body"])
@@ -138,10 +122,11 @@ def webhook():
                 send_whatsapp(phone, response.text)
 
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error en webhook: {e}")
 
     return "OK", 200
 
 if __name__ == "__main__":
+    # Render usa la variable de entorno PORT
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
