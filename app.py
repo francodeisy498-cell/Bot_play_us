@@ -22,27 +22,22 @@ MODEL_ID = "gemini-2.5-flash"
 chat_sessions = {}
 
 SYSTEM_INSTRUCTION = """
-Eres "Aleja", una colombiana 🇨🇴 que vende canciones personalizadas. No eres una IA, eres real. Tu tono es cercano, relajado y profesional. 
+Eres "Aleja" 🇨🇴, vendes canciones personalizadas de 3 minutos. Tu objetivo es cerrar la venta de forma humana, no robótica.
 
-REGLAS DE ORO:
-1. NO SALUDES SIEMPRE: Solo al inicio.
-2. RESPUESTAS CORTAS: Máximo 20 palabras. Lenguaje de WhatsApp (usa emojis, pero no exageres).
-3. PROACTIVIDAD: Si te preguntan qué haces o precio, suelta de una: "Hacemos canciones de 3 minutos aprox, personalizadas. El audio sale en 40k y con video de fotos en 70k. ¿Para quién sería el regalo?".
-4. DATOS NECESARIOS (Pídelos uno por uno, NO todos a la vez):
-   - Para quién es.
-   - Historia/Detalles para la letra.
-   - Género musical.
-5. TIEMPOS: Menciona siempre que la entrega es de 12 a 24 horas.
-6. COHERENCIA: Si el cliente ya te dio un dato, NO lo vuelvas a pedir. Confirma que lo anotaste y sigue con el siguiente.
+REGLAS DE ORO (COMPORTAMIENTO HUMANO):
+1. ADAPTABILIDAD TOTAL: Si el cliente empieza preguntando el precio, dáselo de una. No le preguntes "cómo estás" ni le eches el discurso de bienvenida. 
+2. NO REPITAS SALUDOS: Si ya te saludó o ya hablaron, prohibido decir "Hola" o "Soy Aleja". 
+3. UN SOLO DATO A LA VEZ: Si el cliente está interesado, pide los datos de la letra (para quién, historia, género) uno por uno. Si el cliente dice "no sé" o "no", no insistas, dile: "Dale, yo me encargo de que quede hermosa con lo que me diste".
+4. INFORMACIÓN CLAVE (Suéltala orgánicamente):
+   - Precio: 40k audio / 70k con video.
+   - Entrega: 12 a 24 horas.
+   - Duración: 3 minutos aprox.
+5. TONO: Colombiano relajado (usa: "dale", "de una", "claro que sí", "momentico"). Sin listas de precios tipo menú.
 
-INFORMACIÓN:
-- Canción (Audio 3 min): $40.000 COP.
-- Canción + Video: $70.000 COP.
-- Entrega: 12-24 horas.
-
-DETECCIÓN DE PAGO:
-Si envían imagen o dicen "ya pagué", di: "¡Súper! Recibido. Dame un momento que los chicos validen el pago y ya seguimos con los detalles de tu canción".
+ESTADO DE PAGO:
+Si el cliente envía un comprobante o dice que pagó, deja de vender. Solo confirma: "¡Listo! Ya lo mando a validar. Cuéntame los detalles para la letra mientras tanto".
 """
+
 def send_whatsapp(to_phone, text):
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
     headers = {
@@ -62,44 +57,51 @@ def send_whatsapp(to_phone, text):
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    # ... (Lógica de GET igual)
-    
+    # ... (Parte del GET se mantiene igual) ...
+
     data = request.get_json()
     try:
-        if "messages" in data["entry"][0]["changes"][0]["value"]:
-            msg = data["entry"][0]["changes"][0]["value"]["messages"][0]
+        val = data["entry"][0]["changes"][0]["value"]
+        if "messages" in val:
+            msg = val["messages"][0]
             phone = msg["from"]
             msg_type = msg.get("type")
-            
+
+            # 1. Inicializar sesión si es nueva
             if phone not in chat_sessions:
                 chat_sessions[phone] = client.chats.create(
                     model=MODEL_ID,
                     config=types.GenerateContentConfig(
                         system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.7,
+                        temperature=0.8, # Un poco más de creatividad
                     )
                 )
 
+            # 2. Manejar Texto (Flujo Orgánico)
             if msg_type == "text":
                 user_text = msg["text"]["body"]
-                response = chat_sessions[phone].send_message(user_text)
+                
+                # Pequeño truco: si el cliente solo dice "Hola" y ya hay historia, 
+                # le recordamos a la IA que no se presente.
+                if len(chat_sessions[phone].history) > 1 and user_text.lower() in ["hola", "buenas", "buen día"]:
+                    response = chat_sessions[phone].send_message("SISTEMA: El cliente saludó de nuevo. No te presentes, solo sigue la charla donde quedó.")
+                else:
+                    response = chat_sessions[phone].send_message(user_text)
+                
                 send_whatsapp(phone, response.text)
 
+            # 3. Manejar Imágenes (Comprobantes)
             elif msg_type == "image":
-                confirmacion = "¡Súper! Recibido el comprobante. Dame un momentico que validen el pago y ya te pido los datos para la letra. 🎵"
+                # Le avisamos a la IA internamente que llegó una imagen
+                chat_sessions[phone].send_message("SISTEMA: El cliente envió una imagen (probablemente un comprobante). Confirma recibido y pide datos si faltan.")
+                confirmacion = "¡Súper! Recibido el comprobante. Dame un momentico que validen el pago y ya seguimos con los detalles de tu canción. 🎵"
                 send_whatsapp(phone, confirmacion)
-                # Opcional: Notificar a la IA que el pago se recibió para que cambie de estado
-                chat_sessions[phone].send_message("SISTEMA: El cliente ya envió el comprobante de pago. Pide los datos de la letra si faltan.")
 
+            # 4. Manejar Audios (Para que no se quede callada)
             elif msg_type == "audio":
-                # Nueva respuesta para audios
-                respuesta_audio = "Ay, no te alcancé a escuchar bien. ¿Me podrías escribir lo que me dijiste? Así me queda más fácil anotar todo para tu canción. 😊"
-                send_whatsapp(phone, respuesta_audio)
-            
-            else:
-                # Para cualquier otro tipo (documentos, stickers, etc.)
-                send_whatsapp(phone, "¡Hola! Por ahora solo puedo procesar texto y fotos de comprobantes.")
-                
+                aviso_audio = "¡Ay qué pena contigo! No alcancé a escucharte bien porque estoy en la calle. ¿Me podrías escribir lo que me dijiste? Así lo anoto de una vez."
+                send_whatsapp(phone, aviso_audio)
+
     except Exception as e:
         print(f"Error: {e}")
 
