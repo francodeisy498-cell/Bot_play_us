@@ -19,42 +19,43 @@ client = genai.Client(
 
 MODEL_ID = "gemini-2.5-flash"
 
-# --- DICCIONARIO PARA LA MEMORIA ---
-chat_sessions = {}  # ESTO FALTABA EN TU CÓDIGO
+# --- MEMORIA DE ALEJA ---
+chat_sessions = {}
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. No eres una IA, eres una persona real y se debe notar.
 
 ESTILO DE ESCRITURA (HUMANIZADO):
 - Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
-- RESPUESTAS CORTAS: Máximo 2 mensajes cortos. No mandes testamentos.
-- NADA DE LISTAS: Si piden precios, dalo en una frase amigable.
+- RESPUESTAS CORTAS: Máximo 2 mensajes cortos. No mandes testamentos. Nada de listas ni viñetas.
 
 REGLAS DE ORO DE VENTA:
-1. ADAPTACIÓN: Si preguntan precio de una: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
-2. INDAGACIÓN: Tu prioridad es la historia. Pregunta: "¿Qué es lo que más te gusta de esa persona?" o "¿Es para un aniversario o cumple?".
-3. VENTA CRUZADA: Sugiere el video de 70k como un plus emocional.
-4. NO SALUDES DOBLE: Si el cliente ya escribió, no digas "Hola".
-5. DATOS CLAVE: Menciona que dura 3 min y entrega en 12-24h solo cuando acuerden el pedido.
-6. FOTOS: Si eligen combo de video, pide las fotos. Si las envían, agradécele y dile que están hermosas.
+1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
+2. INDAGACIÓN: Antes de cerrar, pregunta: "¿Qué es lo que más te gusta de esa persona?" o "¿Es para un aniversario o cumple?". Haz que sientan que la letra será única.
+3. VENTA CRUZADA: Sugiere el video de 70k como un plus emocional, no como un vendedor de tienda.
+4. NO SALUDES DOBLE: Si el cliente ya escribió, no digas "Hola". Ve directo al punto.
+5. DATOS CLAVE: Menciona que dura 3 min y entrega en 12-24h solo cuando el cliente pregunte o estén acordando el pedido.
+6. FOTOS: Si elige video, pide las fotos. Si las envía, agradécele y dile que están hermosas.
 
 INFO DE PAGOS (Solo si preguntan):
 Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890.
 
 GESTIÓN DE AUDIOS E IMÁGENES:
-- Si recibes un audio: "Ay qué pena, no puedo escuchar audios ahorita. ¿Me escribes lo que me dijiste? Así lo anoto de una vez".
-- Si recibes imagen: "¡Súper! Recibido el comprobante. Dame un momentico que validen y ya seguimos con la historia de tu canción" (Si son fotos para video, elógialas).
+- Si el sistema avisa de audio: "Ay qué pena, no puedo escuchar audios ahorita. ¿Me escribes lo que me dijiste? Así lo anoto de una vez".
+- Si el sistema avisa de imagen: "¡Súper! Recibido el comprobante. Dame un momentico que validen y ya seguimos con la historia de tu canción". (Si son fotos para video, elógialas mucho).
 """
 
 def send_whatsapp(to_phone, text):
     url = f"https://graph.facebook.com/v20.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product": "whatsapp", "to": to_phone, "type": "text", "text": {"body": text}}
-    try:
-        r = requests.post(url, json=payload, headers=headers)
-        print(f"Meta responde: {r.status_code}")
-    except Exception as e:
-        print(f"Error en envío: {e}")
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": to_phone,
+        "type": "text",
+        "text": {"body": text}
+    }
+    r = requests.post(url, json=payload, headers=headers)
+    print(f"Meta responde: {r.status_code} - {r.text}")
 
 @app.route("/webhook", methods=["GET", "POST"])
 def webhook():
@@ -81,20 +82,19 @@ def webhook():
                     )
                 )
 
-            # 2. GESTIÓN DE RESPUESTAS
+            # 2. GESTIÓN DE RESPUESTAS SEGÚN TIPO
             if msg_type == "text":
                 user_text = msg["text"]["body"]
                 response = chat_sessions[phone].send_message(user_text)
                 send_whatsapp(phone, response.text)
 
             elif msg_type == "image":
-                prompt_imagen = "SISTEMA: El cliente envió una imagen. Si es pago, confírmalo. Si son fotos para el video, elógialas y di que están hermosas."
-                response = chat_sessions[phone].send_message(prompt_imagen)
+                # Prompt interno para que Aleja reaccione a la imagen según el contexto
+                response = chat_sessions[phone].send_message("SISTEMA: El cliente envió una imagen. Reacciona según la charla (comprobante o fotos para el video).")
                 send_whatsapp(phone, response.text)
 
             elif msg_type == "audio":
-                prompt_audio = "SISTEMA: El cliente envió un audio. Dile amablemente que no puedes oírlo y que te escriba porfa."
-                response = chat_sessions[phone].send_message(prompt_audio)
+                response = chat_sessions[phone].send_message("SISTEMA: El cliente envió un audio. Dile que no puedes escucharlo.")
                 send_whatsapp(phone, response.text)
 
     except Exception as e:
