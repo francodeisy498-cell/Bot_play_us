@@ -34,7 +34,7 @@ REGLAS DE ORO:
 2. INDAGA: Antes de cerrar, pregunta para quién es o qué historia quieren contar.
 3. FOTOS: Si eligen video, pídeles las fotos. Cuando las envíen, elógialas y sigue con la letra.
 4. NO PIDAS DATOS personales hasta que el pago esté confirmado.
-5. PAGOS: Nequi/Daviplata 3334005989, Bancolombia 1234567890. A nombre de Deivid Franco.
+5. PAGOS: Nequi/Daviplata 3334005989, Bancolombia 1234567890. A nombre de Dei** Fra***.
 """
 
 def send_whatsapp(to_phone, text):
