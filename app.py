@@ -94,10 +94,15 @@ def webhook():
                 send_whatsapp(phone, response.text)
 
             elif msg_type == "image":
-                # En lugar de un texto frío, la IA genera una respuesta humana
-                # avisándole internamente que llegó una foto.
-                prompt_foto = "SISTEMA: El cliente envió una foto. Probablemente es el pago. Confirma recibido con cariño y pide detalles si faltan."
-                response = chat_sessions[phone].send_message(prompt_foto)
+                # Le pedimos a Aleja que analice el contexto de la charla
+                prompt_contexto_imagen = """
+                SISTEMA: El cliente envió una imagen. 
+                1. Si el cliente ya pagó o está en el paso de pagar, asume que es el comprobante.
+                2. Si el cliente aceptó el paquete de video (70k), asume que son fotos para el contenido del video.
+                3. Responde de forma muy natural según lo que venga pasando en la charla. 
+                No uses palabras técnicas, responde como Aleja.
+                """
+                response = chat_sessions[phone].send_message(prompt_contexto_imagen)
                 send_whatsapp(phone, response.text)
 
             elif msg_type == "audio":
