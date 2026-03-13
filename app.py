@@ -19,7 +19,7 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-MODEL_ID = "gemini-2.0-flash"
+MODEL_ID = "gemini-2.5-flash"
 
 chat_sessions = {}
 human_mode = {}
@@ -77,12 +77,16 @@ def handle_image_logic(conv_id):
         except Exception as e:
             print(f"Error en lógica de imágenes: {e}")
 
+@app.route("/", methods=["GET"])
+def health_check():
+    return "bot activo", 200
+    
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     
     # Validar que el evento sea un mensaje entrante de un cliente
-    if data.get("event") == "message_created" and data.get("message_type") == "incoming":
+    if data.get("event") == "message_created" and data.get("message", {}).get("message_type") == "incoming":
         conv_id = data["conversation"]["id"]
         content = data.get("content", "")
         # Chatwoot envía los adjuntos en una lista llamada 'attachments'
@@ -108,7 +112,7 @@ def webhook():
 
         # Lógica para Imágenes (Ajustada para Chatwoot)
         if attachments and isinstance(attachments, list) and len(attachments) > 0:
-            if attachments[0].get("file_type") == "image":
+            if "image" in attachments[0].get("file_type", ""):
                 if conv_id not in image_counts:
                     image_counts[conv_id] = 1
                     threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
