@@ -19,7 +19,7 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-MODEL_ID = "gemini-2.0-flash" # Versión estable
+MODEL_ID = "gemini-2.0-flash"
 
 chat_sessions = {}
 human_mode = {}
@@ -27,32 +27,19 @@ image_counts = {}
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
-Los pagos se hacen a nombre de Deivid Franco.
+Los pagos salen a nombre de Dei** Fra*** o Ale**** Vil*****.
 
 ESTILO DE ESCRITURA (HUMANIZADO):
 - Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
-- VARIEDAD COLOMBIANA: Alterna con otras expresiones como: "de una", "dale", "listo", "chévere", "bacano", "imagínate", "qué nota", "oiga", "vea".
-- PROHIBIDO: No uses párrafos largos. No uses más de 30 palabras por mensaje.
-- ESTRATEGIA DE VENTA: No sueltes toda la información de una.
+- VARIEDAD COLOMBIANA: "de una", "dale", "listo", "chévere", "bacano", "imagínate", "qué nota", "oiga".
+- PROHIBIDO: No uses párrafos largos ni más de 30 palabras por mensaje.
 - PROHIBIDO: No uses listas, ni asteriscos, ni guiones.
 
-REGLAS DE INTERACCIÓN:
-1. Si confirmas el género musical, di máximo una frase de emoción y pregunta por el paquete (40k o 70k).
-2. Solo cuando el cliente elija el paquete de 70k, ahí sí pides las fotos y das los medios de pago.
-3. MEDIOS DE PAGO: Nequi/Daviplata: 3334005989 a nombre de Deivid Franco. Dalo de forma muy escueta.
-4. Si el cliente envía 1 FOTO (pago), di: "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨". Y NO HABLES MÁS.
-
-REGLAS DE ORO DE VENTA:
-1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
-2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única. Y TAMBIÉN pregunta siempre qué género musical le gustaría (vallenato, pop, regional mexicano, etc.). No asumas el ritmo, pregúntalo.
-3. RECOMENDACIÓN: Si te piden recomendación de género, responde algo corto y pide la opinión al usuario. Nada de explicar cada género por separado.
-4. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
-5. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890. A nombre de Deivid Franco.
-6. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho, indica que el equipo va a validar el pago y que ya casi siguen con los detalles. Después de esto, no hables más.
-
-REGLAS DE IMÁGENES:
-1. PAGO (1 FOTO): Si el sistema te indica que llegó SOLO 1 FOTO, agradécele mucho por el pago, indica que el equipo va a validar el pago y que ya casi seguimos. Luego no hables más.
-2. VIDEO (2+ FOTOS): Si el sistema te indica que llegaron VARIAS FOTOS, di que están hermosas y pide los detalles que falten para la letra.
+REGLAS DE ORO:
+1. ADAPTACIÓN: Canción sola 40k, con video 70k. Pregunta siempre para quién es y qué género prefieren.
+2. MEDIOS DE PAGO: Nequi/Daviplata: 3334005989 a nombre de Dei** Fra***, Bancolombia: 91240211764 a nombre de Ale**** Vil*****, Llave: @VILLAMIL982.
+3. SI ENVÍA PAGO (1 FOTO): "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨"
+4. FOTOS: Si envía varias fotos para el video, dile que están hermosas y pide detalles para la letra.
 """
 
 def send_whatsapp(conv_id, text):
@@ -73,17 +60,17 @@ def send_whatsapp(conv_id, text):
         print(f"Error enviando a Chatwoot: {e}")
 
 def handle_image_logic(conv_id):
-    """Espera 30 segundos para saber cuántas fotos envió el cliente"""
-    time.sleep(30)
+    """Espera para contar cuántas fotos envió el cliente"""
+    time.sleep(15) # Bajamos a 15 seg para que sea más ágil
     if conv_id in image_counts and conv_id not in human_mode:
         count = image_counts[conv_id]
         del image_counts[conv_id]
         try:
             if count == 1:
                 human_mode[conv_id] = True
-                prompt = "SISTEMA: El cliente envió SOLO 1 FOTO (pago). Dile: ¡recibido! 🚀 voy a pasarle esto al equipo. recuerda que en 12-24 horitas la tienes lista; yo misma te aviso apenas esté melo todo. ¡qué nota! 🎵"
+                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago y que en 12-24 horas estará lista."
             else:
-                prompt = "SISTEMA: El cliente envió VARIAS FOTOS para el video. Dile que están hermosas y pídele los detalles que falten para la letra."
+                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas y sigue con los detalles de la letra."
 
             response = chat_sessions[conv_id].send_message(prompt)
             send_whatsapp(conv_id, response.text)
@@ -94,20 +81,22 @@ def handle_image_logic(conv_id):
 def webhook():
     data = request.get_json()
     
-    # Chatwoot envía eventos, nosotros solo queremos 'message_created' que sean de clientes
+    # Validar que el evento sea un mensaje entrante de un cliente
     if data.get("event") == "message_created" and data.get("message_type") == "incoming":
         conv_id = data["conversation"]["id"]
         content = data.get("content", "")
-        msg_attributes = data.get("attachments", [])
+        # Chatwoot envía los adjuntos en una lista llamada 'attachments'
+        attachments = data.get("attachments", [])
         
-        # --- ESCUDO ANTI-SECUESTRO ---
+        # --- ESCUDO HUMANO ---
         if conv_id in human_mode:
             if human_mode[conv_id] == True:
-                reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y te traigo esa joya. ¡yo te aviso apenas quede lista! ✨"
+                reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
                 send_whatsapp(conv_id, reply_tranqui)
                 human_mode[conv_id] = "AVISADO"
             return "OK", 200
 
+        # Crear sesión de Gemini si no existe
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
@@ -117,25 +106,29 @@ def webhook():
                 ),
             )
 
-        # Lógica para Imágenes
-        if msg_attributes and msg_attributes[0]["file_type"] == "image":
-            if conv_id not in image_counts:
-                image_counts[conv_id] = 1
-                threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
-            else:
-                image_counts[conv_id] += 1
-            return "OK", 200
+        # Lógica para Imágenes (Ajustada para Chatwoot)
+        if attachments and isinstance(attachments, list) and len(attachments) > 0:
+            if attachments[0].get("file_type") == "image":
+                if conv_id not in image_counts:
+                    image_counts[conv_id] = 1
+                    threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
+                else:
+                    image_counts[conv_id] += 1
+                return "OK", 200
 
         # Lógica para Texto
         if content:
             user_text = content.lower()
-            if any(x in user_text for x in ["pagué", "enviado", "comprobante", "listo el pago"]):
+            if any(x in user_text for x in ["pagué", "enviado", "comprobante", "comprobante"]):
                 human_mode[conv_id] = True
-                reply = "¡recibido! 🚀 voy a pasarle esto al equipo. recuerda que en 12-24 horitas la tienes lista; yo misma te aviso apenas esté melo todo. ¡qué nota! 🎵"
+                reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso apenas quede lista. ¡qué nota! ✨"
                 send_whatsapp(conv_id, reply)
             else:
-                response = chat_sessions[conv_id].send_message(content)
-                send_whatsapp(conv_id, response.text)
+                try:
+                    response = chat_sessions[conv_id].send_message(content)
+                    send_whatsapp(conv_id, response.text)
+                except Exception as e:
+                    print(f"Error Gemini: {e}")
                 
     return "OK", 200
 
