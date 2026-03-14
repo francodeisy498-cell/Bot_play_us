@@ -19,14 +19,14 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-# Modelo específico para tu API Key
 MODEL_ID = "gemini-2.5-flash" 
 
 chat_sessions = {}
 human_mode = {}
 image_counts = {}
+processed_messages = {} # CACHÉ PARA EVITAR DOBLES
 
-# --- TU SYSTEM INSTRUCTION ORIGINAL COMPLETO ---
+# --- TU SYSTEM INSTRUCTION ORIGINAL ---
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
 Los pagos se hacen a nombre de Dei** Fra***.
@@ -59,57 +59,22 @@ REGLAS DE IMÁGENES:
 
 def send_whatsapp(conv_id, text):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
-    headers = {
-        "api_access_token": CHATWOOT_ACCESS_TOKEN,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "content": text,
-        "message_type": "outgoing",
-        "private": False
-    }
+    headers = { "api_access_token": CHATWOOT_ACCESS_TOKEN, "Content-Type": "application/json" }
+    payload = { "content": text, "message_type": "outgoing", "private": False }
     try:
         r = requests.post(url, json=payload, headers=headers)
         print(f"-> Enviado a Chatwoot: {r.status_code}")
     except Exception as e:
         print(f"-> Error Chatwoot: {e}")
 
-def handle_image_logic(conv_id):
-    """Lógica para esperar y contar fotos"""
-    time.sleep(10)
-    if conv_id in image_counts and conv_id not in human_mode:
-        count = image_counts[conv_id]
-        del image_counts[conv_id]
-        try:
-            if count == 1:
-                human_mode[conv_id] = True
-                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago."
-            else:
-                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas."
-
-            if conv_id not in chat_sessions:
-                chat_sessions[conv_id] = client.chats.create(
-                    model=MODEL_ID,
-                    config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
-                )
-            
-            response = chat_sessions[conv_id].send_message(prompt)
-            send_whatsapp(conv_id, response.text)
-        except Exception as e:
-            print(f"-> Error Image Logic: {e}")
-
 def process_gemini_message(conv_id, content):
-    """Procesar texto en segundo plano"""
     try:
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
-                    temperature=0.4,
-                ),
+                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.4)
             )
-
+        
         user_text = content.lower()
         if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
             human_mode[conv_id] = True
@@ -117,50 +82,52 @@ def process_gemini_message(conv_id, content):
         else:
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
-
+        
         send_whatsapp(conv_id, reply)
     except Exception as e:
-        print(f"-> Error Gemini Process: {e}")
+        print(f"-> Error Gemini: {e}")
 
 @app.route("/", methods=["GET"])
 def health_check():
-    return "Bot Aleja 2.5 Activo", 200
+    return "OK", 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-
-    # Filtro de evento según tu original
-    if data.get("event") != "message_created":
+    
+    # 1. SACAR ID ÚNICO DEL MENSAJE PARA EVITAR REBOTES
+    msg_id = data.get("id") or (data.get("conversation", {}).get("messages", [{}])[0].get("id"))
+    
+    if msg_id in processed_messages:
+        print(f"-> Mensaje {msg_id} ya procesado, ignorando rebote.")
         return "OK", 200
+    
+    # Guardamos el ID por 60 segundos
+    if msg_id:
+        processed_messages[msg_id] = time.time()
 
-    # Filtro para evitar auto-respuestas
-    if data.get("message_type") != "incoming":
+    # 2. Filtros básicos
+    if data.get("event") != "message_created" or data.get("message_type") != "incoming":
         return "OK", 200
 
     conv_id = data.get("conversation", {}).get("id")
     content = data.get("content", "")
     attachments = data.get("attachments") or []
 
-    # Escudo Humano
+    # 3. Limpiar caché vieja (para no llenar la memoria)
+    now = time.time()
+    for m_id in list(processed_messages.keys()):
+        if now - processed_messages[m_id] > 60:
+            del processed_messages[m_id]
+
+    # --- LÓGICA DE ESCUDO HUMANO ---
     if conv_id in human_mode:
         if human_mode[conv_id] == True:
             send_whatsapp(conv_id, "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame un ratico y te aviso.")
             human_mode[conv_id] = "AVISADO"
         return "OK", 200
 
-    # Detección de imágenes con hilos
-    if attachments:
-        file_type = attachments[0].get("file_type", "")
-        if "image" in file_type:
-            if conv_id not in image_counts:
-                image_counts[conv_id] = 1
-                threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
-            else:
-                image_counts[conv_id] += 1
-            return "OK", 200
-
-    # Procesar texto con hilos para respuesta rápida
+    # --- LÓGICA DE TEXTO ---
     if content:
         threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
 
