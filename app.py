@@ -111,19 +111,22 @@ def webhook():
 
     data = request.get_json()
 
-    print("WEBHOOK RECIBIDO")
-    print(data)
+print("WEBHOOK RECIBIDO")
+print(data)
 
-    if data.get("event") == "message_created":
+# ignorar eventos que no sean creación de mensaje
+if data.get("event") != "message_created":
+    return "OK", 200
 
-        # solo responder a mensajes entrantes
-        if data.get("message_type") != "incoming":
-            return "OK", 200
+# responder solo a mensajes entrantes del cliente
+if data.get("message_type") != "incoming":
+    return "OK", 200
 
-        conv_id = data["conversation"]["id"]
 
-        content = data.get("content", "")
-        attachments = data.get("attachments") or []
+conv_id = data["conversation"]["id"]
+
+content = data.get("content", "")
+attachments = data.get("attachments") or []
 
         # --- ESCUDO HUMANO ---
         if conv_id in human_mode:
