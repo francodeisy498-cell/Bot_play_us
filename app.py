@@ -19,7 +19,8 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-MODEL_ID = "gemini-2.0-flash" # Asegúrate de usar un modelo válido, sugerido 2.0 flash
+# Cambiado a gemini-1.5-flash que es el más estable para este tipo de bots
+MODEL_ID = "gemini-1.5-flash" 
 
 chat_sessions = {}
 human_mode = {}
@@ -68,97 +69,69 @@ def send_whatsapp(conv_id, text):
     }
     try:
         r = requests.post(url, json=payload, headers=headers)
-        print(f"Enviado a Conv {conv_id} | Estado {r.status_code}")
+        print(f"-> Chatwoot envia: {r.status_code}")
     except Exception as e:
-        print(f"Error enviando a Chatwoot: {e}")
-
-def handle_image_logic(conv_id):
-    """Espera a que lleguen todas las fotos antes de responder"""
-    time.sleep(10)
-    if conv_id in image_counts and conv_id not in human_mode:
-        count = image_counts[conv_id]
-        del image_counts[conv_id]
-        try:
-            if count == 1:
-                human_mode[conv_id] = True
-                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago."
-            else:
-                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas."
-
-            response = chat_sessions[conv_id].send_message(prompt)
-            send_whatsapp(conv_id, response.text)
-        except Exception as e:
-            print(f"Error en lógica de imágenes: {e}")
+        print(f"-> Error Chatwoot: {e}")
 
 def process_gemini_message(conv_id, content):
-    """Procesa el texto con Gemini en un hilo separado"""
+    """Procesa el texto con Gemini"""
     try:
+        print(f"-> Procesando mensaje para conv {conv_id}...")
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
-                    temperature=0.4,
+                    temperature=0.7,
                 ),
             )
 
         user_text = content.lower()
-        # Si detecta palabras de pago, activa modo humano
         if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
             human_mode[conv_id] = True
-            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horas te aviso cuando esté lista. ¡qué nota! ✨"
-            send_whatsapp(conv_id, reply)
+            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horas te aviso. ¡qué nota! ✨"
         else:
             response = chat_sessions[conv_id].send_message(content)
-            send_whatsapp(conv_id, response.text)
+            reply = response.text
+
+        send_whatsapp(conv_id, reply)
     except Exception as e:
-        print(f"Error procesando Gemini: {e}")
+        print(f"-> Error en Hilo Gemini: {e}")
 
 @app.route("/", methods=["GET"])
 def health_check():
-    return "bot activo", 200
+    return "Bot Aleja Online", 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-
-    # Solo procesar mensajes creados
+    
+    # 1. Filtro básico de evento
     if data.get("event") != "message_created":
         return "OK", 200
 
-    # IMPORTANTE: Solo responder a mensajes de tipo 'incoming' (del cliente)
-    # Esto evita el bucle infinito donde el bot se responde a sí mismo
+    # 2. IMPORTANTE: Evitar que el bot se responda a sí mismo
+    # Chequeamos si el mensaje es de un agente o del sistema
     if data.get("message_type") != "incoming":
         return "OK", 200
 
     conv_id = data.get("conversation", {}).get("id")
-    content = data.get("content", "") or ""
-    attachments = data.get("attachments") or []
+    content = data.get("content", "")
+    
+    print(f"-> Nuevo mensaje: {content[:20]}... de Conv ID: {conv_id}")
 
-    # --- LÓGICA DE ESCUDO HUMANO ---
+    # --- ESCUDO HUMANO ---
     if conv_id in human_mode:
         if human_mode[conv_id] == True:
-            # Solo responder una vez más para confirmar recepción
-            reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame un ratico y yo misma te aviso."
-            send_whatsapp(conv_id, reply_tranqui)
+            send_whatsapp(conv_id, "¡listo el pollo! 🍗 dame un ratico y te aviso.")
             human_mode[conv_id] = "AVISADO"
         return "OK", 200
 
-    # --- DETECCIÓN DE IMÁGENES ---
-    if attachments:
-        file_type = attachments[0].get("file_type", "")
-        if "image" in file_type:
-            if conv_id not in image_counts:
-                image_counts[conv_id] = 1
-                threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
-            else:
-                image_counts[conv_id] += 1
-            return "OK", 200
-
     # --- LÓGICA DE TEXTO ---
     if content:
-        # Ejecutar Gemini en un hilo para responderle 'OK' a Chatwoot de inmediato
-        threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
+        # Usamos threading pero sin bloquear el proceso principal
+        t = threading.Thread(target=process_gemini_message, args=(conv_id, content))
+        t.start()
 
     return "OK", 200
 
