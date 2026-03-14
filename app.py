@@ -42,7 +42,6 @@ REGLAS DE ORO:
 4. FOTOS: Si envía varias fotos para el video, dile que están hermosas y pide detalles para la letra.
 """
 
-
 def send_whatsapp(conv_id, text):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
 
@@ -104,19 +103,14 @@ def webhook():
 
     if data.get("event") == "message_created":
 
-        message = data.get("message", {})
-
-        # ignorar mensajes del agente o del bot
-        if message.get("message_type") != "incoming":
-            return "OK", 200
-
-        if message.get("sender_type") != "Contact":
+        # solo responder a mensajes entrantes
+        if data.get("message_type") != "incoming":
             return "OK", 200
 
         conv_id = data["conversation"]["id"]
 
-        content = message.get("content", "")
-        attachments = message.get("attachments") or []
+        content = data.get("content", "")
+        attachments = data.get("attachments") or []
 
         # --- ESCUDO HUMANO ---
         if conv_id in human_mode:
