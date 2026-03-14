@@ -44,23 +44,24 @@ REGLAS DE INTERACCIÓN:
 
 REGLAS DE ORO DE VENTA:
 1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
-2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única. Y TAMBIÉN pregunta siempre qué género musical le gustaría (vallenato, pop, regional mexicano, etc.). No asumas el ritmo, pregúntalo.
-3. RECOMENDACIÓN: Si te piden recomendación de género, responde algo corto y pide la opinión al usuario. Nada de explicar cada género por separado.
+2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única. Y TAMBIÉN pregunta siempre qué género musical le gustaría.
+3. RECOMENDACIÓN: Si te piden recomendación de género, responde algo corto y pide la opinión al usuario.
 4. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
-5. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890. A nombre de Dei** Fra***.
-6. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho, indica que el equipo va a validar el pago y que ya casi siguen con los detalles. Después de esto, no hables más.
+5. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890.
+6. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho e indica que el equipo validará el pago.
 
 REGLAS DE IMÁGENES:
-1. PAGO (1 FOTO): Si el sistema te indica que llegó SOLO 1 FOTO, agradécele mucho por el pago, indica que el equipo va a validar el pago y que ya casi seguimos. Luego no hables más.
-2. VIDEO (2+ FOTOS): Si el sistema te indica que llegaron VARIAS FOTOS, di que están hermosas y pide los detalles que falten para la letra.
+1. PAGO (1 FOTO): Si llega solo una foto, agradécele por el pago y di que el equipo validará.
+2. VIDEO (2+ FOTOS): Si llegan varias fotos, di que están hermosas y pide detalles de la letra.
 """
 
 def send_whatsapp(conv_id, text):
+
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
 
     headers = {
         "api_access_token": CHATWOOT_ACCESS_TOKEN,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
     }
 
     payload = {
@@ -70,34 +71,43 @@ def send_whatsapp(conv_id, text):
     }
 
     try:
+
         r = requests.post(url, json=payload, headers=headers)
-        print(f"Enviado a Conv {conv_id}. Estado: {r.status_code}")
+
+        print(f"Enviado a Conv {conv_id} | Estado {r.status_code}")
         print(r.text)
+
     except Exception as e:
+
         print(f"Error enviando a Chatwoot: {e}")
 
 
 def handle_image_logic(conv_id):
+
     time.sleep(15)
 
     if conv_id in image_counts and conv_id not in human_mode:
+
         count = image_counts[conv_id]
         del image_counts[conv_id]
 
         try:
 
             if count == 1:
+
                 human_mode[conv_id] = True
-                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago y que en 12-24 horas estará lista."
+                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago."
 
             else:
-                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas y sigue con los detalles de la letra."
+
+                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas."
 
             response = chat_sessions[conv_id].send_message(prompt)
 
             send_whatsapp(conv_id, response.text)
 
         except Exception as e:
+
             print(f"Error en lógica de imágenes: {e}")
 
 
@@ -114,25 +124,26 @@ def webhook():
     print("WEBHOOK RECIBIDO")
     print(data)
 
-    # ignorar eventos que no sean creación de mensaje
     if data.get("event") != "message_created":
         return "OK", 200
 
-    # responder solo a mensajes entrantes del cliente
-    if data.get("message_type") != "incoming":
+    message = data.get("conversation", {}).get("messages", [{}])[0]
+
+    # 0 = mensaje cliente
+    if message.get("message_type") != 0:
         return "OK", 200
 
-    conv_id = data["conversation"]["id"]
+    conv_id = data.get("conversation", {}).get("id")
 
-    content = data.get("content", "")
-    attachments = data.get("attachments") or []
+    content = message.get("content", "") or ""
+    attachments = message.get("attachments") or []
 
     # --- ESCUDO HUMANO ---
     if conv_id in human_mode:
 
         if human_mode[conv_id] == True:
 
-            reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
+            reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso."
 
             send_whatsapp(conv_id, reply_tranqui)
 
@@ -173,7 +184,7 @@ def webhook():
 
             return "OK", 200
 
-    # --- LÓGICA DE TEXTO ---
+    # --- LÓGICA TEXTO ---
     if content:
 
         user_text = content.lower()
@@ -182,7 +193,7 @@ def webhook():
 
             human_mode[conv_id] = True
 
-            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso apenas quede lista. ¡qué nota! ✨"
+            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horas te aviso."
 
             send_whatsapp(conv_id, reply)
 
@@ -203,6 +214,6 @@ def webhook():
 
 if __name__ == "__main__":
 
-    port = int(os.environ["PORT"])
+    port = int(os.environ.get("PORT", 10000))
 
     app.run(host="0.0.0.0", port=port)
