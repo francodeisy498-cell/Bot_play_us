@@ -19,8 +19,8 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-# Cambiado a gemini-1.5-flash que es el más estable para este tipo de bots
-MODEL_ID = "gemini-1.5-flash" 
+# VOLVEMOS AL MODELO QUE TÚ TIENES (Asegúrate de que el nombre sea exacto)
+MODEL_ID = "gemini-2.5-flash" 
 
 chat_sessions = {}
 human_mode = {}
@@ -69,69 +69,69 @@ def send_whatsapp(conv_id, text):
     }
     try:
         r = requests.post(url, json=payload, headers=headers)
-        print(f"-> Chatwoot envia: {r.status_code}")
+        print(f"-> Chatwoot Status: {r.status_code}")
     except Exception as e:
-        print(f"-> Error Chatwoot: {e}")
+        print(f"-> Error enviando a Chatwoot: {e}")
 
 def process_gemini_message(conv_id, content):
-    """Procesa el texto con Gemini"""
+    """Procesamiento en hilo para evitar bloqueos"""
     try:
-        print(f"-> Procesando mensaje para conv {conv_id}...")
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
                 config=types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
-                    temperature=0.7,
+                    temperature=0.4,
                 ),
             )
 
         user_text = content.lower()
         if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
             human_mode[conv_id] = True
-            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horas te aviso. ¡qué nota! ✨"
+            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨"
         else:
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
 
         send_whatsapp(conv_id, reply)
     except Exception as e:
-        print(f"-> Error en Hilo Gemini: {e}")
+        print(f"-> Error Gemini: {e}")
 
 @app.route("/", methods=["GET"])
 def health_check():
-    return "Bot Aleja Online", 200
+    return "Bot Aleja 2.5 Activo", 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    
-    # 1. Filtro básico de evento
+
+    # Filtro de evento
     if data.get("event") != "message_created":
         return "OK", 200
 
-    # 2. IMPORTANTE: Evitar que el bot se responda a sí mismo
-    # Chequeamos si el mensaje es de un agente o del sistema
+    # EVITAR AUTO-RESPUESTA: Solo procesar mensajes de clientes
     if data.get("message_type") != "incoming":
         return "OK", 200
 
     conv_id = data.get("conversation", {}).get("id")
     content = data.get("content", "")
-    
-    print(f"-> Nuevo mensaje: {content[:20]}... de Conv ID: {conv_id}")
+    attachments = data.get("attachments") or []
 
-    # --- ESCUDO HUMANO ---
+    # Escudo Humano
     if conv_id in human_mode:
         if human_mode[conv_id] == True:
-            send_whatsapp(conv_id, "¡listo el pollo! 🍗 dame un ratico y te aviso.")
+            send_whatsapp(conv_id, "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame un ratico y te aviso.")
             human_mode[conv_id] = "AVISADO"
         return "OK", 200
 
-    # --- LÓGICA DE TEXTO ---
+    # Detección de imágenes (simplificada)
+    if attachments:
+        # Aquí podrías reusar tu lógica de handle_image_logic si la necesitas
+        return "OK", 200
+
+    # Procesar texto en hilo separado
     if content:
-        # Usamos threading pero sin bloquear el proceso principal
-        t = threading.Thread(target=process_gemini_message, args=(conv_id, content))
-        t.start()
+        threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
 
     return "OK", 200
 
