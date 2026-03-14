@@ -111,93 +111,92 @@ def webhook():
 
     data = request.get_json()
 
-print("WEBHOOK RECIBIDO")
-print(data)
+    print("WEBHOOK RECIBIDO")
+    print(data)
 
-# ignorar eventos que no sean creación de mensaje
-if data.get("event") != "message_created":
-    return "OK", 200
+    # ignorar eventos que no sean creación de mensaje
+    if data.get("event") != "message_created":
+        return "OK", 200
 
-# responder solo a mensajes entrantes del cliente
-if data.get("message_type") != "incoming":
-    return "OK", 200
+    # responder solo a mensajes entrantes del cliente
+    if data.get("message_type") != "incoming":
+        return "OK", 200
 
+    conv_id = data["conversation"]["id"]
 
-conv_id = data["conversation"]["id"]
+    content = data.get("content", "")
+    attachments = data.get("attachments") or []
 
-content = data.get("content", "")
-attachments = data.get("attachments") or []
+    # --- ESCUDO HUMANO ---
+    if conv_id in human_mode:
 
-        # --- ESCUDO HUMANO ---
-        if conv_id in human_mode:
+        if human_mode[conv_id] == True:
 
-            if human_mode[conv_id] == True:
+            reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
 
-                reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
+            send_whatsapp(conv_id, reply_tranqui)
 
-                send_whatsapp(conv_id, reply_tranqui)
+            human_mode[conv_id] = "AVISADO"
 
-                human_mode[conv_id] = "AVISADO"
+        return "OK", 200
 
-            return "OK", 200
+    # crear sesión gemini
+    if conv_id not in chat_sessions:
 
-        # crear sesión gemini
-        if conv_id not in chat_sessions:
+        chat_sessions[conv_id] = client.chats.create(
+            model=MODEL_ID,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                temperature=0.4,
+            ),
+        )
 
-            chat_sessions[conv_id] = client.chats.create(
-                model=MODEL_ID,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
-                    temperature=0.4,
-                ),
-            )
+    # --- DETECCIÓN DE IMÁGENES ---
+    if attachments:
 
-        # --- DETECCIÓN DE IMÁGENES ---
-        if attachments:
+        file_type = attachments[0].get("file_type", "")
 
-            file_type = attachments[0].get("file_type", "")
+        if "image" in file_type:
 
-            if "image" in file_type:
+            if conv_id not in image_counts:
 
-                if conv_id not in image_counts:
+                image_counts[conv_id] = 1
 
-                    image_counts[conv_id] = 1
-
-                    threading.Thread(
-                        target=handle_image_logic,
-                        args=(conv_id,)
-                    ).start()
-
-                else:
-
-                    image_counts[conv_id] += 1
-
-                return "OK", 200
-
-        # --- LÓGICA DE TEXTO ---
-        if content:
-
-            user_text = content.lower()
-
-            if any(x in user_text for x in ["pagué", "enviado", "comprobante"]):
-
-                human_mode[conv_id] = True
-
-                reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso apenas quede lista. ¡qué nota! ✨"
-
-                send_whatsapp(conv_id, reply)
+                threading.Thread(
+                    target=handle_image_logic,
+                    args=(conv_id,)
+                ).start()
 
             else:
 
-                try:
+                image_counts[conv_id] += 1
 
-                    response = chat_sessions[conv_id].send_message(content)
+            return "OK", 200
 
-                    send_whatsapp(conv_id, response.text)
+    # --- LÓGICA DE TEXTO ---
+    if content:
 
-                except Exception as e:
+        user_text = content.lower()
 
-                    print(f"Error Gemini: {e}")
+        if any(x in user_text for x in ["pagué", "enviado", "comprobante"]):
+
+            human_mode[conv_id] = True
+
+            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso apenas quede lista. ¡qué nota! ✨"
+
+            send_whatsapp(conv_id, reply)
+
+        else:
+
+            try:
+
+                response = chat_sessions[conv_id].send_message(content)
+
+                send_whatsapp(conv_id, response.text)
+
+            except Exception as e:
+
+                print(f"Error Gemini: {e}")
 
     return "OK", 200
 
