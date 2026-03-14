@@ -42,69 +42,98 @@ REGLAS DE ORO:
 4. FOTOS: Si envía varias fotos para el video, dile que están hermosas y pide detalles para la letra.
 """
 
+
 def send_whatsapp(conv_id, text):
-    """Envía el mensaje a través de la API de Chatwoot"""
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
+
     headers = {
         "api_access_token": CHATWOOT_ACCESS_TOKEN,
         "Content-Type": "application/json",
     }
+
     payload = {
         "content": text,
         "message_type": "outgoing",
+        "private": False
     }
+
     try:
         r = requests.post(url, json=payload, headers=headers)
         print(f"Enviado a Conv {conv_id}. Estado: {r.status_code}")
+        print(r.text)
     except Exception as e:
         print(f"Error enviando a Chatwoot: {e}")
 
+
 def handle_image_logic(conv_id):
-    """Espera para contar cuántas fotos envió el cliente"""
-    time.sleep(15) # Bajamos a 15 seg para que sea más ágil
+    time.sleep(15)
+
     if conv_id in image_counts and conv_id not in human_mode:
         count = image_counts[conv_id]
         del image_counts[conv_id]
+
         try:
+
             if count == 1:
                 human_mode[conv_id] = True
                 prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago y que en 12-24 horas estará lista."
+
             else:
                 prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas y sigue con los detalles de la letra."
 
             response = chat_sessions[conv_id].send_message(prompt)
+
             send_whatsapp(conv_id, response.text)
+
         except Exception as e:
             print(f"Error en lógica de imágenes: {e}")
+
 
 @app.route("/", methods=["GET"])
 def health_check():
     return "bot activo", 200
-    
+
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
+
     data = request.get_json()
 
     print("WEBHOOK RECIBIDO")
     print(data)
-    
-    # Validar que el evento sea un mensaje entrante de un cliente
-    if data.get("event") == "message_created" and data.get("message", {}).get("message_type") == "incoming":
-        conv_id = data["conversation"]["id"]
-        content = data.get("content", "")
-        # Chatwoot envía los adjuntos en una lista llamada 'attachments'
-        attachments = data.get("attachments", [])
-        
-        # --- ESCUDO HUMANO ---
-        if conv_id in human_mode:
-            if human_mode[conv_id] == True:
-                reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
-                send_whatsapp(conv_id, reply_tranqui)
-                human_mode[conv_id] = "AVISADO"
+
+    if data.get("event") == "message_created":
+
+        message = data.get("message", {})
+
+        # ignorar mensajes del agente o del bot
+        if message.get("message_type") != "incoming":
             return "OK", 200
 
-        # Crear sesión de Gemini si no existe
+        if message.get("sender_type") != "Contact":
+            return "OK", 200
+
+        conv_id = data["conversation"]["id"]
+
+        content = message.get("content", "")
+        attachments = message.get("attachments") or []
+
+        # --- ESCUDO HUMANO ---
+        if conv_id in human_mode:
+
+            if human_mode[conv_id] == True:
+
+                reply_tranqui = "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame de 12 a 24 horas y yo misma te aviso apenas esté melo todo. ✨"
+
+                send_whatsapp(conv_id, reply_tranqui)
+
+                human_mode[conv_id] = "AVISADO"
+
+            return "OK", 200
+
+        # crear sesión gemini
         if conv_id not in chat_sessions:
+
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
                 config=types.GenerateContentConfig(
@@ -113,34 +142,58 @@ def webhook():
                 ),
             )
 
-        # Lógica para Imágenes (Ajustada para Chatwoot)
-        if attachments and isinstance(attachments, list) and len(attachments) > 0:
-            if "image" in attachments[0].get("file_type", ""):
+        # --- DETECCIÓN DE IMÁGENES ---
+        if attachments:
+
+            file_type = attachments[0].get("file_type", "")
+
+            if "image" in file_type:
+
                 if conv_id not in image_counts:
+
                     image_counts[conv_id] = 1
-                    threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
+
+                    threading.Thread(
+                        target=handle_image_logic,
+                        args=(conv_id,)
+                    ).start()
+
                 else:
+
                     image_counts[conv_id] += 1
+
                 return "OK", 200
 
-        # Lógica para Texto
+        # --- LÓGICA DE TEXTO ---
         if content:
+
             user_text = content.lower()
-            if any(x in user_text for x in ["pagué", "enviado", "comprobante", "comprobante"]):
+
+            if any(x in user_text for x in ["pagué", "enviado", "comprobante"]):
+
                 human_mode[conv_id] = True
+
                 reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso apenas quede lista. ¡qué nota! ✨"
+
                 send_whatsapp(conv_id, reply)
+
             else:
+
                 try:
+
                     response = chat_sessions[conv_id].send_message(content)
+
                     send_whatsapp(conv_id, response.text)
+
                 except Exception as e:
+
                     print(f"Error Gemini: {e}")
-                
+
     return "OK", 200
 
-if __name__ == "__main__":
-    import os
 
-    port = int(os.environ["PORT"])  # Render asigna automáticamente
+if __name__ == "__main__":
+
+    port = int(os.environ["PORT"])
+
     app.run(host="0.0.0.0", port=port)
