@@ -24,7 +24,7 @@ MODEL_ID = "gemini-2.5-flash"
 chat_sessions = {}
 human_mode = {}
 image_counts = {}
-processed_messages = {} # CACHÉ PARA EVITAR DOBLES
+processed_messages = {} # Caché anti-duplicados
 
 # --- TU SYSTEM INSTRUCTION ORIGINAL ---
 SYSTEM_INSTRUCTION = """
@@ -63,19 +63,39 @@ def send_whatsapp(conv_id, text):
     payload = { "content": text, "message_type": "outgoing", "private": False }
     try:
         r = requests.post(url, json=payload, headers=headers)
-        print(f"-> Enviado a Chatwoot: {r.status_code}")
+        print(f"-> Chatwoot Status: {r.status_code}")
     except Exception as e:
-        print(f"-> Error Chatwoot: {e}")
+        print(f"-> Error enviando a Chatwoot: {e}")
+
+def handle_image_logic(conv_id):
+    """Espera 30 segundos para acumular todas las fotos enviadas"""
+    time.sleep(30) 
+    if conv_id in image_counts and conv_id not in human_mode:
+        count = image_counts[conv_id]
+        del image_counts[conv_id]
+        try:
+            if count == 1:
+                human_mode[conv_id] = True
+                prompt = "SISTEMA: El cliente envió 1 FOTO. Confirma que recibiste el pago y agradece brevemente."
+            else:
+                prompt = f"SISTEMA: El cliente envió {count} fotos. Dile que están hermosas y pregunta por los detalles de la letra."
+
+            if conv_id not in chat_sessions:
+                chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION))
+            
+            response = chat_sessions[conv_id].send_message(prompt)
+            send_whatsapp(conv_id, response.text)
+        except Exception as e:
+            print(f"-> Error en lógica de imágenes: {e}")
 
 def process_gemini_message(conv_id, content):
+    """Procesamiento de mensajes de texto"""
     try:
         if conv_id not in chat_sessions:
-            chat_sessions[conv_id] = client.chats.create(
-                model=MODEL_ID,
-                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.4)
-            )
+            chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.4))
         
         user_text = content.lower()
+        # Si el texto indica pago, activar escudo humano
         if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
             human_mode[conv_id] = True
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨"
@@ -95,18 +115,14 @@ def health_check():
 def webhook():
     data = request.get_json()
     
-    # 1. SACAR ID ÚNICO DEL MENSAJE PARA EVITAR REBOTES
-    msg_id = data.get("id") or (data.get("conversation", {}).get("messages", [{}])[0].get("id"))
-    
+    # 1. Filtro anti-duplicados por ID de mensaje
+    msg_id = data.get("id")
     if msg_id in processed_messages:
-        print(f"-> Mensaje {msg_id} ya procesado, ignorando rebote.")
         return "OK", 200
-    
-    # Guardamos el ID por 60 segundos
     if msg_id:
         processed_messages[msg_id] = time.time()
 
-    # 2. Filtros básicos
+    # 2. Solo procesar mensajes entrantes de clientes
     if data.get("event") != "message_created" or data.get("message_type") != "incoming":
         return "OK", 200
 
@@ -114,18 +130,29 @@ def webhook():
     content = data.get("content", "")
     attachments = data.get("attachments") or []
 
-    # 3. Limpiar caché vieja (para no llenar la memoria)
+    # Limpieza periódica de la caché de IDs
     now = time.time()
     for m_id in list(processed_messages.keys()):
         if now - processed_messages[m_id] > 60:
             del processed_messages[m_id]
 
-    # --- LÓGICA DE ESCUDO HUMANO ---
+    # --- ESCUDO HUMANO ---
     if conv_id in human_mode:
         if human_mode[conv_id] == True:
             send_whatsapp(conv_id, "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame un ratico y te aviso.")
             human_mode[conv_id] = "AVISADO"
         return "OK", 200
+
+    # --- LÓGICA DE IMÁGENES (Con espera de 30 segundos) ---
+    if attachments:
+        file_type = attachments[0].get("file_type", "")
+        if "image" in file_type:
+            if conv_id not in image_counts:
+                image_counts[conv_id] = 1
+                threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
+            else:
+                image_counts[conv_id] += 1
+            return "OK", 200
 
     # --- LÓGICA DE TEXTO ---
     if content:
