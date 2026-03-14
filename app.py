@@ -84,6 +84,9 @@ def health_check():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
+
+    print("WEBHOOK RECIBIDO")
+    print(data)
     
     # Validar que el evento sea un mensaje entrante de un cliente
     if data.get("event") == "message_created" and data.get("message", {}).get("message_type") == "incoming":
