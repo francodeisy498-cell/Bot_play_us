@@ -26,10 +26,9 @@ human_mode = {}
 image_counts = {}
 processed_messages = {} # Caché anti-duplicados
 
-# --- TU SYSTEM INSTRUCTION ORIGINAL ---
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
-Los pagos se hacen a nombre de Dei** Fra***.
+Los pagos se hacen a nombre de Deivid Franco.
 
 ESTILO DE ESCRITURA (HUMANIZADO):
 - Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
@@ -68,7 +67,6 @@ def send_whatsapp(conv_id, text):
         print(f"-> Error enviando a Chatwoot: {e}")
 
 def handle_image_logic(conv_id):
-    """Espera 30 segundos para acumular todas las fotos enviadas"""
     time.sleep(30) 
     if conv_id in image_counts and conv_id not in human_mode:
         count = image_counts[conv_id]
@@ -86,16 +84,14 @@ def handle_image_logic(conv_id):
             response = chat_sessions[conv_id].send_message(prompt)
             send_whatsapp(conv_id, response.text)
         except Exception as e:
-            print(f"-> Error en lógica de imágenes: {e}")
+            print(f"-> Error en imágenes: {e}")
 
 def process_gemini_message(conv_id, content):
-    """Procesamiento de mensajes de texto"""
     try:
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.4))
         
         user_text = content.lower()
-        # Si el texto indica pago, activar escudo humano
         if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
             human_mode[conv_id] = True
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨"
@@ -115,35 +111,39 @@ def health_check():
 def webhook():
     data = request.get_json()
     
-    # 1. Filtro anti-duplicados por ID de mensaje
-    msg_id = data.get("id")
+    # 1. EXTRACCIÓN ROBUSTA DE IDs (Evita fallas con diferentes canales)
+    msg_id = data.get("id") or data.get("message", {}).get("id")
+    conv_id = data.get("conversation", {}).get("id") or data.get("message", {}).get("conversation_id")
+
     if msg_id in processed_messages:
         return "OK", 200
     if msg_id:
         processed_messages[msg_id] = time.time()
 
-    # 2. Solo procesar mensajes entrantes de clientes
+    # 2. FILTROS DE EVENTO
     if data.get("event") != "message_created" or data.get("message_type") != "incoming":
         return "OK", 200
 
-    conv_id = data.get("conversation", {}).get("id")
-    content = data.get("content", "")
+    if not conv_id:
+        return "OK", 200
+
+    content = data.get("content") or ""
     attachments = data.get("attachments") or []
 
-    # Limpieza periódica de la caché de IDs
+    # Limpieza de caché
     now = time.time()
     for m_id in list(processed_messages.keys()):
         if now - processed_messages[m_id] > 60:
             del processed_messages[m_id]
 
-    # --- ESCUDO HUMANO ---
+    # 3. ESCUDO HUMANO
     if conv_id in human_mode:
         if human_mode[conv_id] == True:
             send_whatsapp(conv_id, "¡listo el pollo! 🍗 el equipo ya se pone en esas. dame un ratico y te aviso.")
             human_mode[conv_id] = "AVISADO"
         return "OK", 200
 
-    # --- LÓGICA DE IMÁGENES (Con espera de 30 segundos) ---
+    # 4. LÓGICA DE IMÁGENES
     if attachments:
         file_type = attachments[0].get("file_type", "")
         if "image" in file_type:
@@ -154,7 +154,7 @@ def webhook():
                 image_counts[conv_id] += 1
             return "OK", 200
 
-    # --- LÓGICA DE TEXTO ---
+    # 5. LÓGICA DE TEXTO
     if content:
         threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
 
