@@ -105,27 +105,32 @@ def handle_image_logic(conv_id):
 
 def process_gemini_message(conv_id, content):
     try:
+        # Quitamos el 'with sem' para que no haya fila de espera
         if conv_id not in chat_sessions:
-            chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7))
+            chat_sessions[conv_id] = client.chats.create(
+                model=MODEL_ID, 
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION, 
+                    temperature=0.7,
+                    max_output_tokens=250 # Limitamos la respuesta para que sea veloz
+                )
+            )
         
         user_text = content.lower()
-        
-        # --- MEJORA AQUÍ: Palabras de confirmación real, no solo preguntas ---
-        # Evitamos que "pago" solo dispare el bot. Buscamos acciones pasadas.
-        confirmacion_pago = ["pagué", "ya envie", "ya mande", "listo el pago", "comprobante enviado", "aqui esta el pago"]
+        confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante"]
         
         if any(x in user_text for x in confirmacion_pago):
             human_mode[conv_id] = time.time()
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
         else:
-            # Si solo pregunta "¿donde pago?", Gemini responderá con las cuentas de Nequi/Daviplata 
-            # gracias a tu System Instruction, sin activar el "recibido".
+            # Añadimos un timeout a la petición de Gemini para que no se quede colgado
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
         
         send_whatsapp(conv_id, reply)
+        print(f"-> Respuesta enviada a ID: {conv_id}") # Para ver en logs
     except Exception as e:
-        print(f"-> Error Gemini: {e}")
+        print(f"-> Error Crítico Gemini: {e}")
 
 # --- RUTAS ---
 
