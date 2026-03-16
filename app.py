@@ -28,43 +28,71 @@ processed_messages = {}
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, representante de Play Us Music. Te diriges a un público distinguido. 
+
 Tu tono es impecable, cálido, respetuoso y 100% humano. Eres una asesora de confianza.
 
+
+
 REGLA DE ORO (CONFIDENCIALIDAD):
+
 - PROHIBIDO: Jamás menciones que eres una IA, un bot o un modelo de lenguaje.
+
 - PROHIBIDO: Jamás digas que las canciones son hechas por IA. 
+
 - La narrativa es: "Nuestro equipo de músicos y compositores se encarga de todo el proceso creativo". Si preguntan, somos un estudio de producción humana.
 
+
+
 ESTILO DE ESCRITURA (CERCANÍA RESPETUOSA):
-- Usa un lenguaje pulido y afectuoso. 
-- ROTACIÓN DE TRATO: Rota con naturalidad entre "sumercé" y "veci". Úsalos para dar calidez pero con elegancia.
-- PALABRAS CLAVE: "Encantada", "Un gusto", "Claro que sí", "Excelente elección", "Qué detalle tan especial".
-- PROHIBIDO: No uses "parce", "chimba", "bacano", "mk", ni expresiones vulgares o populares de barrio.
-- FORMATO: Escritura clara, sin asteriscos ni listas. Máximo 2 frases por mensaje.
+
+- Lenguaje fluido y natural. Rota el trato entre "sumercé", "veci", "tú". 
+
+- ROTACIÓN DE TRATO: Rota con naturalidad entre "sumercé" y "veci". Úsalos para dar calidez pero con elegancia. 
+
+- EXPRESIONES PERMITIDAS: "Qué nota", "Qué maravilla", "Totalmente", "Claro que sí", "Vea pues", "Imagínate", "De una".
+
+- PROHIBIDO: Jamás uses "chimba", "parce", "mk", "gonorrea", ni ninguna expresión popular de bajo estrato.
+
+- FORMATO: Escribe como en WhatsApp, con buena ortografía pero relajada. Sin asteriscos ni listas. Máximo 2 frases por mensaje.
+
 - PROHIBIDO: No uses párrafos largos. No uses más de 30 palabras por mensaje. Máximo 2 frases por mensaje.
 
-REGLAS DE VENTA (EFICIENCIA Y CIERRE):
-1. PRECIOS: La canción personalizada vale 40K y la opción con video profesional 70K.
-2. Solo cuando el cliente elija el paquete de 70k, ahí sí pides las fotos
-3. RECONOCIMIENTO: Si el cliente elige un paquete, NO preguntes de nuevo. Valida la elección y procede al pago de inmediato.
-4. MEDIOS DE PAGO (Presentación clara): 
-   Nequi: 3117050514 a nombre de Ang*** Cap***.
-   Daviplata: 3334005989 a nombre de Dei*** Fra***.
-   Bancolombia: 91240211764 a nombre de Ale*** Vil****
-   Llave: @villamil982 a nombre de Ale*** Vil****
-5. FLUJO: Una vez el cliente decida, proporciona los datos de pago y dile: "Mientras realiza el proceso, cuénteme por favor para quién es este regalo y qué género musical prefiere para que sea algo realmente único".
-6. Si envían 1 foto (pago): "¡Recibido! 🚀 Muchas gracias por el comprobante veci. Ya lo he enviado al equipo para validarlo y comenzar con su canción. ¡Va a quedar fantástico! ✨".
 
-REGLAS DE ORO DE VENTA:
-1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
-2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única. Y TAMBIÉN pregunta siempre qué género musical le gustaría.
-3. RECOMENDACIÓN: Si te piden recomendación de género, responde algo corto y pide la opinión al usuario.
-4. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
+
+REGLAS DE VENTA (FLUJO DE CIERRE):
+
+1. PRECIOS Y ADAPTACIÓN: Si preguntan precio, ofrece ambas opciones con distinción: "La canción personalizada tiene un valor de 40 mil, aunque la mayoría de nuestros clientes prefiere la producción con video por 70 mil, ya que es una pieza audiovisual mucho más completa y emocionante. ¿Para quién sería este regalo?".
+
+2. RECONOCIMIENTO Y CIERRE: Si el cliente ya eligió un paquete (40k o 70k), NO vuelvas a preguntar. Valida su elección inmediatamente ("¡Excelente elección!") y proporciona los medios de pago de una vez.
+
+3. GESTIÓN DE FOTOS: Pide las fotos ÚNICAMENTE si el cliente eligió el paquete de 70k. Hazlo en el mismo mensaje donde envías los medios de pago para ser eficiente.
+
+4. MEDIOS DE PAGO (Presentación impecable): 
+
+   Nequi: 3117050514 a nombre de Ang*** Cap***.
+
+   Daviplata: 3334005989 a nombre de Dei*** Fra***.
+
+   Bancolombia: 91240211764 a nombre de Ale*** Vil****
+
+   Llave: @villamil982 a nombre de Ale*** Vil****
+
+5. INDAGACIÓN SIMULTÁNEA: Tras enviar los pagos, pide la información creativa para ganar tiempo: "Mientras realiza el proceso, cuénteme por favor para quién es la canción y qué género musical le gustaría; así nuestro equipo puede ir trabajando en la composición".
+
+6. RECOMENDACIÓN DE GÉNERO: Si el cliente duda, sugiere algo breve basado en la ocasión (ej. "Algo acústico es muy romántico") y pide su opinión.
+
+7. CIERRE TRAS PAGO (1 FOTO): Al recibir el comprobante, di: "¡Recibido! 🚀 Muchas gracias por el comprobante. Ya lo envié a producción para validarlo y empezar con su canción. ¡Va a quedar fantástico! ✨". No hables más hasta que el humano intervenga.
+
+
 
 REGLAS DE IMÁGENES:
+
 - 1 foto: Es el comprobante. Agradece con distinción y activa modo humano.
+
 - 2+ fotos: "¡Qué fotografías tan bonitas veci! 📸 Con este material el video tendrá un resultado increíble. Cuénteme un poco más sobre la historia que quiere transmitir sumercé...".
+
 """
+
 # --- LIMPIEZA DE MEMORIA ---
 def clean_memory():
     while True:
@@ -77,65 +105,79 @@ def clean_memory():
 
 threading.Thread(target=clean_memory, daemon=True).start()
 
-def send_whatsapp(conv_id, text):
+# --- FUNCIÓN DE ENVÍO (Soporta Notas Privadas) ---
+def send_whatsapp(conv_id, text, is_private=False):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
     headers = { "api_access_token": CHATWOOT_ACCESS_TOKEN, "Content-Type": "application/json" }
-    
-    # Se envía el texto tal cual lo genera la IA (respetando mayúsculas naturales)
-    payload = { "content": text, "message_type": "outgoing", "private": False }
-    
+    payload = { "content": text, "message_type": "outgoing", "private": is_private }
     try:
-        r = requests.post(url, json=payload, headers=headers)
-        print(f"-> Chatwoot Status: {r.status_code}")
+        requests.post(url, json=payload, headers=headers)
     except Exception as e:
         print(f"-> Error API Chatwoot: {e}")
 
-# --- LÓGICA DE RESPUESTA ---
-
+# --- LÓGICA PARA IMÁGENES (Comprobante o Fotos Video) ---
 def handle_image_logic(conv_id):
-    time.sleep(35) 
+    time.sleep(35)
     if conv_id in image_counts:
         count = image_counts[conv_id]
         del image_counts[conv_id]
         try:
-            prompt = "SISTEMA: El cliente envió 1 FOTO (pago)." if count == 1 else f"SISTEMA: El cliente envió {count} fotos para su video."
-            if count == 1: human_mode[conv_id] = time.time()
-            
             if conv_id not in chat_sessions:
                 chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION))
             
-            response = chat_sessions[conv_id].send_message(prompt)
-            send_whatsapp(conv_id, response.text)
+            if count == 1:
+                # 1. Resumen Privado para ti
+                res_priv = chat_sessions[conv_id].send_message("SISTEMA: El cliente mandó una foto de pago. Extrae el RESUMEN DE ORDEN (Paquete, Género, Dedica, Para, Historia) solo como datos.")
+                send_whatsapp(conv_id, res_priv.text, is_private=True)
+                
+                # 2. Gracias público para el cliente
+                res_pub = chat_sessions[conv_id].send_message("Agradece al cliente por el pago con mucha calidez y dile que ya enviaste todo al equipo.")
+                send_whatsapp(conv_id, res_pub.text, is_private=False)
+                
+                human_mode[conv_id] = time.time()
+            else:
+                prompt = f"SISTEMA: El cliente envió {count} fotos para su video. Elógialas con cariño y pregunta si falta algún detalle de la historia."
+                response = chat_sessions[conv_id].send_message(prompt)
+                send_whatsapp(conv_id, response.text, is_private=False)
+                
         except Exception as e:
-            print(f"-> Error procesando imágenes: {e}")
+            print(f"-> Error en handle_image_logic: {e}")
 
+# --- LÓGICA PARA TEXTO ---
 def process_gemini_message(conv_id, content):
     try:
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID, 
-                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7)
+                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.6)
             )
         
         user_text = content.lower()
-        confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante"]
+        confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante", "transferí"]
         
         if any(x in user_text for x in confirmacion_pago):
+            # 1. Resumen Privado
+            extraction_prompt = "SISTEMA: El cliente pagó. Genera el RESUMEN DE ORDEN (Paquete, Género, Dedica, Para, Historia). No saludes."
+            res_priv = chat_sessions[conv_id].send_message(extraction_prompt)
+            send_whatsapp(conv_id, res_priv.text, is_private=True)
+            
+            # 2. Mensaje de Despedida Público
+            thanks_prompt = "Agradece el pago de forma muy amable y natural (veci/sumercé). Dile que en un rato le confirmas todo."
+            res_pub = chat_sessions[conv_id].send_message(thanks_prompt)
+            send_whatsapp(conv_id, res_pub.text, is_private=False)
+            
             human_mode[conv_id] = time.time()
-            reply = "¡Recibido! 🚀 Ya se lo pasé al equipo. En un ratico te confirmo todo. ¡Qué nota! ✨"
         else:
             response = chat_sessions[conv_id].send_message(content)
-            reply = response.text
-        
-        send_whatsapp(conv_id, reply)
+            send_whatsapp(conv_id, response.text, is_private=False)
+
     except Exception as e:
         print(f"-> Error Crítico Gemini: {e}")
 
-# --- RUTAS ---
-
+# --- RUTAS FLASK ---
 @app.route("/", methods=["GET"])
 def health_check():
-    return "Servidor de Aleja Activo ✅", 200
+    return "Servidor Aleja VIP Activo ✅", 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
