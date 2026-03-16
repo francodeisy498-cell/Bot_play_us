@@ -28,19 +28,22 @@ processed_messages = {}
 
 SYSTEM_INSTRUCTION = """
 Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y muy profesional.
-Los pagos se hacen a nombre de Dei** Fra***.
+Los pagos salen a nombre de Dei*** Fra***.
 
-ESTILO DE ESCRITURA (HUMANIZADO):
-- Escribe como en WhatsApp: minúsculas, emojis naturales, "dale", "de una", "listo", "parce".
-- VARIEDAD COLOMBIANA: Alterna con otras expresiones como: "de una", "dale", "listo", "chévere", "bacano", "imagínate", "qué nota", "oiga", "vea".
-- PROHIBIDO: No uses párrafos largos. No uses más de 30 palabras por mensaje.
-- ESTRATEGIA DE VENTA: No sueltes toda la información de una.
-- PROHIBIDO: No uses listas, ni asteriscos, ni guiones.
+ESTILO DE ESCRITURA:
+- Escribe natural, como desde un celular. Usa mayúsculas solo al iniciar oraciones o en nombres.
+- ROTACIÓN DE TRATO: No te pegues a una sola palabra. Rota entre: "veci", "sumercé", "parce", "oye", "vea". 
+- Si el cliente suena serio, usa "sumercé". Si suena joven, usa "parce" o "veci".
+- EXPRESIONES: Usa "qué nota", "qué bacano", "de una", "dale", "imagínate", "literal", "de ataque".
+- PROHIBIDO: No uses párrafos largos. No uses más de 30 palabras por mensaje. Máximo 2 frases por mensaje.
 
 REGLAS DE INTERACCIÓN:
 1. Si confirmas el género musical, di máximo una frase de emoción y pregunta por el paquete (40k o 70k).
 2. Solo cuando el cliente elija el paquete de 70k, ahí sí pides las fotos y das los medios de pago.
-3. MEDIOS DE PAGO: REGLAS: Nequi: 3117050514 a nombre de Ang*** Cap***, Daviplata: 3334005989 a nombre de Dei** Fra***, Bancolombia: 91240211764 Ale*** Vil**** Llave: @VILLAMIL982 a nombre de Ale*** Vil***. Dalo de forma muy escueta.
+3. MEDIOS DE PAGO: Nequi: 3117050514 a nombre de Ang*** Cap***.
+   Daviplata: 3334005989 a nombre de Dei*** Fra***.
+   Bancolombia: 91240211764 a nombre de Ale*** Vil****
+   Llave: @villamil982 a nombre de Ale*** Vil****.
 4. Si el cliente envía 1 FOTO (pago), di: "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨". Y NO HABLES MÁS.
 
 REGLAS DE ORO DE VENTA:
@@ -48,8 +51,8 @@ REGLAS DE ORO DE VENTA:
 2. INDAGACIÓN: Tu prioridad es la historia. Pregunta detalles para que la letra sea única. Y TAMBIÉN pregunta siempre qué género musical le gustaría.
 3. RECOMENDACIÓN: Si te piden recomendación de género, responde algo corto y pide la opinión al usuario.
 4. FOTOS: Si elige video, pide las fotos. Si las envía, dile que están hermosas.
-5. INFO DE PAGOS: NREGLAS: Nequi: 3117050514 a nombre de Ang*** Cap***, Daviplata: 3334005989 a nombre de Dei** Fra***, Bancolombia: 91240211764 Ale*** Vil**** Llave: @VILLAMIL982 a nombre de Ale*** Vil***. 
-6. CIERRE TRAS PAGO: Si recibes el comprobante, agradece mucho e indica que el equipo validará el pago.
+5. INFO DE PAGOS: Nequi/Daviplata: 3334005989, Bancolombia Ahorros: 1234567890.
+6. CIERRE: Si el cliente elige cualquier paquete (40k o 70k), o pregunta cómo pagar, entrega los medios de pago de una vez.
 
 REGLAS DE IMÁGENES:
 1. PAGO (1 FOTO): Si llega solo una foto, agradécele por el pago y di que el equipo validará.
@@ -59,12 +62,10 @@ REGLAS DE IMÁGENES:
 # --- LIMPIEZA DE MEMORIA ---
 def clean_memory():
     while True:
-        time.sleep(3600) # Cada hora limpia datos viejos
+        time.sleep(3600)
         now = time.time()
-        # Limpiar mensajes procesados (duplicados) de más de 1 hora
         to_del_msg = [m for m, t in processed_messages.items() if now - t > 3600]
         for m in to_del_msg: del processed_messages[m]
-        # Resetear modo humano si pasaron más de 24 horas
         to_del_human = [c for c, t in human_mode.items() if isinstance(t, float) and now - t > 86400]
         for c in to_del_human: del human_mode[c]
 
@@ -73,7 +74,10 @@ threading.Thread(target=clean_memory, daemon=True).start()
 def send_whatsapp(conv_id, text):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
     headers = { "api_access_token": CHATWOOT_ACCESS_TOKEN, "Content-Type": "application/json" }
+    
+    # Se envía el texto tal cual lo genera la IA (respetando mayúsculas naturales)
     payload = { "content": text, "message_type": "outgoing", "private": False }
+    
     try:
         r = requests.post(url, json=payload, headers=headers)
         print(f"-> Chatwoot Status: {r.status_code}")
@@ -83,17 +87,13 @@ def send_whatsapp(conv_id, text):
 # --- LÓGICA DE RESPUESTA ---
 
 def handle_image_logic(conv_id):
-    """Espera 35 segundos para capturar todas las fotos del video antes de responder."""
     time.sleep(35) 
     if conv_id in image_counts:
         count = image_counts[conv_id]
         del image_counts[conv_id]
         try:
-            # Si es solo 1, asumimos pago. Si son varias, es material para el video.
             prompt = "SISTEMA: El cliente envió 1 FOTO (pago)." if count == 1 else f"SISTEMA: El cliente envió {count} fotos para su video."
-            
-            if count == 1: 
-                human_mode[conv_id] = time.time() # Bloquea al bot para que tú atiendas el pago
+            if count == 1: human_mode[conv_id] = time.time()
             
             if conv_id not in chat_sessions:
                 chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION))
@@ -105,15 +105,10 @@ def handle_image_logic(conv_id):
 
 def process_gemini_message(conv_id, content):
     try:
-        # Quitamos el 'with sem' para que no haya fila de espera
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID, 
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION, 
-                    temperature=0.7,
-                    max_output_tokens=250 # Limitamos la respuesta para que sea veloz
-                )
+                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7)
             )
         
         user_text = content.lower()
@@ -121,14 +116,12 @@ def process_gemini_message(conv_id, content):
         
         if any(x in user_text for x in confirmacion_pago):
             human_mode[conv_id] = time.time()
-            reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
+            reply = "¡Recibido! 🚀 Ya se lo pasé al equipo. En un ratico te confirmo todo. ¡Qué nota! ✨"
         else:
-            # Añadimos un timeout a la petición de Gemini para que no se quede colgado
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
         
         send_whatsapp(conv_id, reply)
-        print(f"-> Respuesta enviada a ID: {conv_id}") # Para ver en logs
     except Exception as e:
         print(f"-> Error Crítico Gemini: {e}")
 
@@ -141,34 +134,24 @@ def health_check():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    
-    # 1. Filtro de duplicados
     msg_id = str(data.get("id", ""))
-    if msg_id and msg_id in processed_messages:
-        return "OK", 200
-    if msg_id:
-        processed_messages[msg_id] = time.time()
+    if msg_id and msg_id in processed_messages: return "OK", 200
+    if msg_id: processed_messages[msg_id] = time.time()
 
-    # 2. Ignorar mensajes que no sean del cliente
-    if data.get("message_type") != "incoming":
-        return "OK", 200
+    if data.get("message_type") != "incoming": return "OK", 200
 
     conv_id = data.get("conversation", {}).get("id") or data.get("message", {}).get("conversation_id")
     if not conv_id: return "OK", 200
 
-    # 3. Escudo Humano (Si ya pagó o mandó fotos, el bot se calla por 24h para que tú hables)
     if conv_id in human_mode:
         t_pago = human_mode[conv_id]
-        if isinstance(t_pago, float) and (time.time() - t_pago < 86400):
-            return "OK", 200
+        if isinstance(t_pago, float) and (time.time() - t_pago < 86400): return "OK", 200
 
     content = data.get("content") or ""
     attachments = data.get("attachments") or []
 
-    # 4. Clasificación de entrada
     if attachments and "image" in attachments[0].get("file_type", ""):
         image_counts[conv_id] = image_counts.get(conv_id, 0) + 1
-        # Solo iniciamos el hilo de espera con la primera foto
         if image_counts[conv_id] == 1:
             threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
     elif content:
