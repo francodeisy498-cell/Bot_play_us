@@ -109,10 +109,17 @@ def process_gemini_message(conv_id, content):
             chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7))
         
         user_text = content.lower()
-        if any(x in user_text for x in ["pagué", "enviado", "comprobante", "pago"]):
+        
+        # --- MEJORA AQUÍ: Palabras de confirmación real, no solo preguntas ---
+        # Evitamos que "pago" solo dispare el bot. Buscamos acciones pasadas.
+        confirmacion_pago = ["pagué", "ya envie", "ya mande", "listo el pago", "comprobante enviado", "aqui esta el pago"]
+        
+        if any(x in user_text for x in confirmacion_pago):
             human_mode[conv_id] = time.time()
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
         else:
+            # Si solo pregunta "¿donde pago?", Gemini responderá con las cuentas de Nequi/Daviplata 
+            # gracias a tu System Instruction, sin activar el "recibido".
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
         
