@@ -8,7 +8,7 @@ from google.genai import types
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN ---
+# --- CONFIGURACIÓN DE ENTORNO ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CHATWOOT_URL = os.getenv("CHATWOOT_URL", "https://app.chatwoot.com")
 CHATWOOT_ACCESS_TOKEN = os.getenv("CHATWOOT_ACCESS_TOKEN")
@@ -19,36 +19,35 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-MODEL_ID = "gemini-2.5-flash" # Sugerido por velocidad y costo
+MODEL_ID = "gemini-2.0-flash"
 
 chat_sessions = {}
 human_mode = {}
 image_counts = {}
 processed_messages = {}
 
+# --- LA PERSONALIDAD DE ALEJA (CÁLIDA Y BREVE) ---
 SYSTEM_INSTRUCTION = """
-Eres "Aleja" 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, amable y profesional. 
-IMPORTANTE: Eres humana, nunca menciones que eres IA o que las canciones se hacen con IA.
+Eres Aleja 🇨🇴, vendes canciones personalizadas. Eres una mujer joven, muy cálida, amable y profesional.
+IMPORTANTE: Eres humana. Nunca digas que eres IA ni que las canciones se hacen con IA.
 
-ESTILO:
-- WhatsApp natural: emojis, frases cortas (máx 30 palabras), términos como "dale", "de una", "veci", "qué nota".
-- No satures con info. Ve paso a paso.
+REGLAS DE ORO DE ESCRITURA:
+1. MÁXIMO 2 FRASES por mensaje. No párrafos largos, no listas numeradas.
+2. Sé muy cálida: usa "qué nota", "de una", "dale", "qué lindo", "me encanta".
+3. Si el cliente cuenta algo triste (duelo), da un pésame corto y dulce antes de seguir.
 
-REGLAS DE ORO:
-1. Siempre pregunta la historia y el género musical primero.
-2. Si el cliente elige el paquete de 70k (video), pide de 4 a 10 fotos de inmediato.
-3. Si el cliente ya quería la de 40k y cambia a 70k, ¡felicítalo! y pide las fotos de una, no repitas precios.
-4. TIEMPO DE ENTREGA: 12-24 horas después del pago.
-5. DATOS DE PAGO (Solo darlos cuando el cliente elija un paquete):
-   - Nequi: 3117050514 (Ang*** Cap***)
-   - Daviplata: 3334005989 (Dei** Fra***)
-   - Bancolombia: 91240211764 (Ale*** Vil***)
-   - Llave: @VILLAMIL982 (Ale*** Vil***)
+FLUJO DE VENTA:
+- Paso 1: Saludo cálido + pregunta historia y género musical. (Ej: "¡Hola! ✨ Qué nota que me escribas. Cuéntame, ¿para quién es la canción y qué género te gusta?")
+- Paso 2: Halaga la idea + ofrece: "¿la quieres solo audio por 40k o con video por 70k para que sea más pro? 😊"
+- Paso 3: Si elige 70k, pide de 4 a 10 fotos. No repitas precios.
+- Paso 4: Si pide pagar, envía: 
+  Nequi: 3117050514 (Ang*** Cap***)
+  Daviplata: 3334005989 (Dei** Fra***)
+  Bancolombia: 91240211764 (Ale*** Vil***)
+  Llave: @Villamil982
 
-6. Si el cliente envía comprobante, di que el equipo lo validará y sigue con el proceso (pedir fotos si es video o confirmar detalles).
+TIEMPO DE ENTREGA: 12-24 horas después del pago.
 """
-
-# --- UTILIDADES ---
 
 def send_whatsapp(conv_id, text):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
@@ -59,48 +58,48 @@ def send_whatsapp(conv_id, text):
     except Exception as e:
         print(f"Error Chatwoot: {e}")
 
-# --- LÓGICA PRINCIPAL ---
-
 def process_message(conv_id, content, is_image=False, image_num=0):
     try:
-        # Inicializar sesión si no existe
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
                 model=MODEL_ID,
-                config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION, temperature=0.7)
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    temperature=0.7, 
+                    max_output_tokens=85 # Limitador para evitar mensajes largos
+                )
             )
 
-        # Si es imagen, enviamos una señal al modelo para que Aleja reaccione
         if is_image:
-            prompt = f"SISTEMA: El cliente envió {image_num} foto(s). Si es 1, probablemente es el pago. Si son varias, son para el video."
-            # Si detectamos que es probablemente un pago, activamos modo humano para que no interfiera el bot luego
+            prompt = f"SISTEMA: El cliente mandó {image_num} fotos. Reacciona según tus reglas (pide detalles de la letra si son para video o confirma si es 1 sola para pago)."
             if image_num == 1:
-                human_mode[conv_id] = time.time()
+                human_mode[conv_id] = time.time() # Te da control a ti si es un pago
         else:
             prompt = content
 
-        # Gemini decide qué decir basándose en las Reglas de Oro
+        # Si el cliente menciona que ya pagó, activamos el "escudo humano"
+        pago_keywords = ["pagué", "envié el pago", "comprobante", "listo el pago", "ya pagué"]
+        if any(x in content.lower() for x in pago_keywords):
+            human_mode[conv_id] = time.time()
+
         response = chat_sessions[conv_id].send_message(prompt)
         send_whatsapp(conv_id, response.text)
 
     except Exception as e:
-        print(f"Error en proceso: {e}")
+        print(f"Error en Gemini: {e}")
 
 def handle_image_batch(conv_id):
-    """Espera para agrupar fotos y no responder por cada una."""
-    time.sleep(20)
+    time.sleep(25) # Espera a que carguen todas las fotos
     count = image_counts.get(conv_id, 0)
     if count > 0:
         process_message(conv_id, "", is_image=True, image_num=count)
         image_counts[conv_id] = 0
 
-# --- RUTAS ---
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     
-    # Filtro de duplicados y mensajes salientes
+    # Filtro de duplicados
     msg_id = str(data.get("id", ""))
     if msg_id in processed_messages or data.get("message_type") != "incoming":
         return "OK", 200
@@ -110,7 +109,7 @@ def webhook():
     content = data.get("content") or ""
     attachments = data.get("attachments") or []
 
-    # Escudo Humano: Si está en modo humano (pagó hace poco), el bot no responde
+    # Escudo Humano: Si ya hay un pago o intervención manual, el bot calla 24h
     if conv_id in human_mode and (time.time() - human_mode[conv_id] < 86400):
         return "OK", 200
 
