@@ -2,24 +2,25 @@ import os
 import requests
 import threading
 import time
-from flask import Flask, request
-from google import genai
-from google.genai import types
+from flask import Flask, request, jsonify
+import google.generativeai as genai
+from google.generativeai.types import GenerationConfig
 
 app = Flask(__name__)
 
-# --- CONFIGURACIÓN ---
+# ── CONFIGURACIÓN ────────────────────────────────────────────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 CHATWOOT_URL = os.getenv("CHATWOOT_URL", "https://app.chatwoot.com")
 CHATWOOT_ACCESS_TOKEN = os.getenv("CHATWOOT_ACCESS_TOKEN")
 ACCOUNT_ID = os.getenv("ACCOUNT_ID")
 
-client = genai.Client(
-    api_key=GEMINI_API_KEY,
-    http_options={"api_version": "v1beta"}
-)
+if not GEMINI_API_KEY:
+    print("¡ERROR! GEMINI_API_KEY no está configurada")
 
-MODEL_ID = "gemini-2.5-flash" 
+genai.configure(api_key=GEMINI_API_KEY)
+
+MODEL_ID = "gemini-2.5-flash"          # ← actualizado a versión más reciente (2025)
+# MODEL_ID = "gemini-2.5-flash-latest" # alternativa si quieres la más nueva
 
 chat_sessions = {}
 human_mode = {}
@@ -83,21 +84,24 @@ OBJETIVO:
 Conversación natural tipo WhatsApp, avanzar hacia la compra mientras construyes la historia de la canción.
 """
 
-# --- LIMPIEZA DE MEMORIA ---
+# ── LIMPIEZA DE MEMORIA ──────────────────────────────────────────────────────────
 def clean_memory():
     while True:
         time.sleep(3600)
         now = time.time()
-
         to_del_msg = [m for m, t in processed_messages.items() if now - t > 3600]
         for m in to_del_msg:
             del processed_messages[m]
-
         to_del_human = [c for c, t in human_mode.items() if isinstance(t, float) and now - t > 86400]
         for c in to_del_human:
             del human_mode[c]
 
+# ── ENVÍO A CHATWOOT ─────────────────────────────────────────────────────────────
 def send_whatsapp(conv_id, text):
+    if not all([CHATWOOT_URL, CHATWOOT_ACCESS_TOKEN, ACCOUNT_ID]):
+        print("Faltan variables de Chatwoot → no se envía mensaje")
+        return
+
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
     headers = {
         "api_access_token": CHATWOOT_ACCESS_TOKEN,
@@ -109,75 +113,86 @@ def send_whatsapp(conv_id, text):
         "private": False
     }
     try:
-        r = requests.post(url, json=payload, headers=headers)
-        print(f"-> Chatwoot Status: {r.status_code}")
+        r = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"→ Chatwoot → {r.status_code} | conv:{conv_id}")
     except Exception as e:
-        print(f"-> Error API Chatwoot: {e}")
+        print(f"→ Error enviando a Chatwoot: {e}")
 
-# --- LÓGICA DE RESPUESTA ---
-
+# ── LÓGICA DE IMÁGENES ───────────────────────────────────────────────────────────
 def handle_image_logic(conv_id):
-    time.sleep(35)
+    time.sleep(35)  # espera para agrupar varias fotos
+    if conv_id not in image_counts:
+        return
 
-    if conv_id in image_counts:
-        count = image_counts[conv_id]
-        del image_counts[conv_id]
-
-        try:
-            prompt = "SISTEMA: El cliente envió 1 FOTO (pago)." if count == 1 else f"SISTEMA: El cliente envió {count} fotos para su video."
-
-            if count == 1:
-                human_mode[conv_id] = time.time()
-
-            if conv_id not in chat_sessions:
-                chat_sessions[conv_id] = client.chats.create(
-                    model=MODEL_ID,
-                    config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
-                )
-
-            response = chat_sessions[conv_id].send_message(prompt)
-            send_whatsapp(conv_id, response.text)
-
-        except Exception as e:
-            print(f"-> Error procesando imágenes: {e}")
-
-def process_gemini_message(conv_id, content):
+    count = image_counts.pop(conv_id, 0)
     try:
+        if count == 1:
+            prompt = "SISTEMA: El cliente envió 1 FOTO (probablemente comprobante de pago)."
+            human_mode[conv_id] = time.time()
+        else:
+            prompt = f"SISTEMA: El cliente envió {count} fotos para su video personalizado."
+
         if conv_id not in chat_sessions:
-            chat_sessions[conv_id] = client.chats.create(
-                model=MODEL_ID,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+            model = genai.GenerativeModel(
+                model_name=MODEL_ID,
+                generation_config=GenerationConfig(
                     temperature=0.7,
                     max_output_tokens=250
-                )
+                ),
+                system_instruction=SYSTEM_INSTRUCTION
             )
+            chat_sessions[conv_id] = model.start_chat(history=[])
 
-        user_text = content.lower()
+        response = chat_sessions[conv_id].send_message(prompt)
+        reply = response.text.strip()
+        send_whatsapp(conv_id, reply)
+    except Exception as e:
+        print(f"→ Error procesando imágenes en conv {conv_id}: {e}")
+
+# ── PROCESAR MENSAJE TEXTO ───────────────────────────────────────────────────────
+def process_gemini_message(conv_id, content):
+    try:
+        user_text = content.lower().strip()
+
+        # Detección rápida de confirmación de pago
         confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante"]
-
-        if any(x in user_text for x in confirmacion_pago):
+        if any(palabra in user_text for palabra in confirmacion_pago):
             human_mode[conv_id] = time.time()
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
-        else:
-            response = chat_sessions[conv_id].send_message(content)
-            reply = response.text
+            send_whatsapp(conv_id, reply)
+            return
 
+        # Gemini normal
+        if conv_id not in chat_sessions:
+            model = genai.GenerativeModel(
+                model_name=MODEL_ID,
+                generation_config=GenerationConfig(
+                    temperature=0.7,
+                    max_output_tokens=250
+                ),
+                system_instruction=SYSTEM_INSTRUCTION
+            )
+            chat_sessions[conv_id] = model.start_chat(history=[])
+
+        response = chat_sessions[conv_id].send_message(content)
+        reply = response.text.strip()
         send_whatsapp(conv_id, reply)
-        print(f"-> Respuesta enviada a ID: {conv_id}")
 
+        print(f"→ Respuesta enviada → conv:{conv_id} | {reply[:60]}...")
     except Exception as e:
-        print(f"-> Error Crítico Gemini: {e}")
+        print(f"→ Error crítico Gemini conv {conv_id}: {e}")
 
-# --- RUTAS ---
-
+# ── RUTAS FLASK ──────────────────────────────────────────────────────────────────
 @app.route("/", methods=["GET"])
 def health_check():
-    return "Servidor de Aleja Activo ✅", 200
+    return jsonify({"status": "ok", "message": "Aleja backend activo ✅"}), 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.get_json()
+    try:
+        data = request.get_json()
+    except:
+        return "Bad JSON", 400
 
     msg_id = str(data.get("id", ""))
     if msg_id and msg_id in processed_messages:
@@ -188,31 +203,34 @@ def webhook():
     if data.get("message_type") != "incoming":
         return "OK", 200
 
-    conv_id = data.get("conversation", {}).get("id") or data.get("message", {}).get("conversation_id")
+    conv_id = (
+        data.get("conversation", {}).get("id")
+        or data.get("message", {}).get("conversation_id")
+    )
     if not conv_id:
         return "OK", 200
 
+    # Modo humano (post-pago) → ignorar mensajes por 24h
     if conv_id in human_mode:
-        t_pago = human_mode[conv_id]
-        if isinstance(t_pago, float) and (time.time() - t_pago < 86400):
+        if isinstance(human_mode[conv_id], float) and (time.time() - human_mode[conv_id] < 86400):
             return "OK", 200
 
     content = data.get("content") or ""
     attachments = data.get("attachments") or []
 
-    if attachments and "image" in attachments[0].get("file_type", ""):
+    if attachments and attachments[0].get("file_type", "").startswith("image"):
         image_counts[conv_id] = image_counts.get(conv_id, 0) + 1
-
-        if image_counts[conv_id] == 1:
-            threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
+        if image_counts[conv_id] == 1:  # solo el primer thread cuenta
+            threading.Thread(target=handle_image_logic, args=(conv_id,), daemon=True).start()
 
     elif content:
-        threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
+        threading.Thread(target=process_gemini_message, args=(conv_id, content), daemon=True).start()
 
     return "OK", 200
 
-# ✅ SOLO AQUÍ VA ESTO (IMPORTANTE)
+# ── INICIO (Render usa Gunicorn, NO ejecutar app.run aquí) ───────────────────────
 if __name__ == "__main__":
+    # Solo para desarrollo local
+    print("Modo desarrollo local → usando puerto 5000")
     threading.Thread(target=clean_memory, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000, debug=False)
