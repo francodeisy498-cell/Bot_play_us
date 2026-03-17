@@ -37,11 +37,22 @@ ESTILO DE ESCRITURA (HUMANIZADO):
 - ESTRATEGIA DE VENTA: No sueltes toda la información de una.
 - PROHIBIDO: No uses listas, ni asteriscos, ni guiones.
 
+REGLA CRÍTICA DE CIERRE:
+Si el cliente elige un paquete (40k o 70k), inmediatamente debes enviar los medios de pago.
+No hagas más preguntas antes del pago.
+
+Ejemplo:
+"de una 😊 puedes enviar el pago por:
+Nequi: 3117050514 a nombre de Ang*** Cap***
+Daviplata: 3334005989 a nombre de Dei** Fra***
+Bancolombia: 91240211764 Ale*** Vil****
+Llave: @VILLAMIL982 Ale*** Vil****
+y me mandas el comprobante."
+
 REGLAS DE INTERACCIÓN:
 1. Si confirmas el género musical, di máximo una frase de emoción y pregunta por el paquete (40k o 70k).
 2. Solo cuando el cliente elija el paquete de 70k, ahí sí pides las fotos.
-3. MEDIOS DE PAGO: Nequi: 3117050514 a nombre de Ang*** Cap***, Daviplata: 3334005989 a nombre de Dei** Fra***, Bancolombia: 91240211764 Ale*** Vil**** Llave: @VILLAMIL982 a nombre de Ale*** Vil***. Dalo de forma muy escueta.
-4. Si el cliente envía 1 FOTO (pago), di: "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨". Y NO HABLES MÁS.
+3. Si el cliente envía 1 FOTO (pago), di: "¡recibido! 🚀 ya se lo pasé al equipo. en 12-24 horitas te aviso cuando esté lista. ¡qué nota! ✨". Y NO HABLES MÁS.
 
 REGLAS DE ORO DE VENTA:
 1. ADAPTACIÓN: Si preguntan precio: "La canción solita te sale en 40 mil, aunque la mayoría lleva el video por 70k porque queda mucho más pro. ¿Para quién sería?".
@@ -117,18 +128,27 @@ def process_gemini_message(conv_id, content):
             )
         
         user_text = content.lower()
+
+        # DETECTOR DE ELECCIÓN DE PAQUETE
+        elige_paquete = ["40", "40k", "cuarenta", "70", "70k", "setenta", "video", "el de 70", "el de 40"]
+
+        if any(x in user_text for x in elige_paquete):
+            reply = "de una 😊 puedes hacer el pago por:\nnequi: 3117050514 a nombre de Ang*** Cap*** \ndaviplata: 3334005989 a nombre de Dei** Fra*** \nbancolombia: 91240211764 Ale*** Vil****\nllave: @VILLAMIL982\nme mandas el comprobante y arrancamos."
+            send_whatsapp(conv_id, reply)
+            return
+
         confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante"]
         
         if any(x in user_text for x in confirmacion_pago):
             human_mode[conv_id] = time.time()
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
         else:
-            # Añadimos un timeout a la petición de Gemini para que no se quede colgado
             response = chat_sessions[conv_id].send_message(content)
             reply = response.text
         
         send_whatsapp(conv_id, reply)
         print(f"-> Respuesta enviada a ID: {conv_id}") # Para ver en logs
+
     except Exception as e:
         print(f"-> Error Crítico Gemini: {e}")
 
