@@ -19,7 +19,7 @@ client = genai.Client(
     http_options={"api_version": "v1beta"}
 )
 
-MODEL_ID = "gemini-2.0-flash" # Sugerido por velocidad y costo
+MODEL_ID = "gemini-2.5-flash" # Sugerido por velocidad y costo
 
 chat_sessions = {}
 human_mode = {}
