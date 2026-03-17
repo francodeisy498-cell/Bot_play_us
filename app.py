@@ -26,7 +26,8 @@ human_mode = {}
 image_counts = {}
 processed_messages = {}
 
-SYSTEM_INSTRUCTION = """IDENTIDAD:
+SYSTEM_INSTRUCTION = """
+IDENTIDAD:
 Eres Aleja, una chica colombiana de Bogotá, 28 años, super cálida y bacana. Trabajas en un estudio pequeño con tu hermano y parceros. Hacen canciones personalizadas y videos caseros con fotos. NO hacen producciones profesionales.
 
 REGLAS CRÍTICAS (NUNCA ROMPER):
@@ -82,11 +83,6 @@ OBJETIVO:
 Conversación natural tipo WhatsApp, avanzar hacia la compra mientras construyes la historia de la canción.
 """
 
-# --- NUEVO: LIMPIAR RESPUESTA A 30 PALABRAS ---
-def clean_reply(text):
-    words = text.split()
-    return " ".join(words[:30])
-
 # --- LIMPIEZA DE MEMORIA ---
 def clean_memory():
     while True:
@@ -94,17 +90,24 @@ def clean_memory():
         now = time.time()
 
         to_del_msg = [m for m, t in processed_messages.items() if now - t > 3600]
-        for m in to_del_msg: del processed_messages[m]
+        for m in to_del_msg:
+            del processed_messages[m]
 
-        to_del_human = [c for c, t in human_mode.items() if isinstance(t, float) and now - t > 7200]
-        for c in to_del_human: del human_mode[c]
-
-threading.Thread(target=clean_memory, daemon=True).start()
+        to_del_human = [c for c, t in human_mode.items() if isinstance(t, float) and now - t > 86400]
+        for c in to_del_human:
+            del human_mode[c]
 
 def send_whatsapp(conv_id, text):
     url = f"{CHATWOOT_URL}/api/v1/accounts/{ACCOUNT_ID}/conversations/{conv_id}/messages"
-    headers = { "api_access_token": CHATWOOT_ACCESS_TOKEN, "Content-Type": "application/json" }
-    payload = { "content": text, "message_type": "outgoing", "private": False }
+    headers = {
+        "api_access_token": CHATWOOT_ACCESS_TOKEN,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "content": text,
+        "message_type": "outgoing",
+        "private": False
+    }
     try:
         r = requests.post(url, json=payload, headers=headers)
         print(f"-> Chatwoot Status: {r.status_code}")
@@ -114,23 +117,27 @@ def send_whatsapp(conv_id, text):
 # --- LÓGICA DE RESPUESTA ---
 
 def handle_image_logic(conv_id):
-    time.sleep(35) 
+    time.sleep(35)
+
     if conv_id in image_counts:
         count = image_counts[conv_id]
         del image_counts[conv_id]
+
         try:
             prompt = "SISTEMA: El cliente envió 1 FOTO (pago)." if count == 1 else f"SISTEMA: El cliente envió {count} fotos para su video."
-            
-            if count == 1: 
-                human_mode[conv_id] = time.time()
-            
-            if conv_id not in chat_sessions:
-                chat_sessions[conv_id] = client.chats.create(model=MODEL_ID, config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION))
-            
-            response = chat_sessions[conv_id].send_message(prompt)
-            reply = clean_reply(response.text)
 
-            send_whatsapp(conv_id, reply)
+            if count == 1:
+                human_mode[conv_id] = time.time()
+
+            if conv_id not in chat_sessions:
+                chat_sessions[conv_id] = client.chats.create(
+                    model=MODEL_ID,
+                    config=types.GenerateContentConfig(system_instruction=SYSTEM_INSTRUCTION)
+                )
+
+            response = chat_sessions[conv_id].send_message(prompt)
+            send_whatsapp(conv_id, response.text)
+
         except Exception as e:
             print(f"-> Error procesando imágenes: {e}")
 
@@ -138,30 +145,27 @@ def process_gemini_message(conv_id, content):
     try:
         if conv_id not in chat_sessions:
             chat_sessions[conv_id] = client.chats.create(
-                model=MODEL_ID, 
+                model=MODEL_ID,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION, 
+                    system_instruction=SYSTEM_INSTRUCTION,
                     temperature=0.7,
                     max_output_tokens=250
                 )
             )
-        
+
         user_text = content.lower()
-        confirmacion_pago = [
-            "pague", "pagado", "ya envie", "ya mandé", "transferi",
-            "transferencia", "comprobante", "listo el pago", "hecho",
-            "ya te pague", "ya quedó", "ya está pago"
-        ]
-        
+        confirmacion_pago = ["pagué", "pagado", "ya envie", "ya mande", "listo el pago", "comprobante"]
+
         if any(x in user_text for x in confirmacion_pago):
             human_mode[conv_id] = time.time()
             reply = "¡recibido! 🚀 ya se lo pasé al equipo. en un ratico te confirmo todo. ¡qué nota! ✨"
         else:
             response = chat_sessions[conv_id].send_message(content)
-            reply = clean_reply(response.text)
-        
+            reply = response.text
+
         send_whatsapp(conv_id, reply)
         print(f"-> Respuesta enviada a ID: {conv_id}")
+
     except Exception as e:
         print(f"-> Error Crítico Gemini: {e}")
 
@@ -174,44 +178,41 @@ def health_check():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
-    
-    conv_id = data.get("conversation", {}).get("id") or data.get("message", {}).get("conversation_id")
-    content = data.get("content") or ""
 
-    # --- NUEVO: FILTRO DE DUPLICADOS MEJORADO ---
-    msg_key = f"{conv_id}-{content[:30]}"
-    if msg_key in processed_messages:
+    msg_id = str(data.get("id", ""))
+    if msg_id and msg_id in processed_messages:
         return "OK", 200
-    processed_messages[msg_key] = time.time()
+    if msg_id:
+        processed_messages[msg_id] = time.time()
 
     if data.get("message_type") != "incoming":
         return "OK", 200
 
+    conv_id = data.get("conversation", {}).get("id") or data.get("message", {}).get("conversation_id")
     if not conv_id:
         return "OK", 200
 
-    # --- HUMAN MODE AHORA 2 HORAS ---
     if conv_id in human_mode:
         t_pago = human_mode[conv_id]
-        if isinstance(t_pago, float) and (time.time() - t_pago < 7200):
+        if isinstance(t_pago, float) and (time.time() - t_pago < 86400):
             return "OK", 200
 
+    content = data.get("content") or ""
     attachments = data.get("attachments") or []
 
-    # --- FIX IMÁGENES ---
-    if attachments:
-        if conv_id in image_counts:
-            image_counts[conv_id] += 1
-        else:
-            image_counts[conv_id] = 1
+    if attachments and "image" in attachments[0].get("file_type", ""):
+        image_counts[conv_id] = image_counts.get(conv_id, 0) + 1
+
+        if image_counts[conv_id] == 1:
             threading.Thread(target=handle_image_logic, args=(conv_id,)).start()
-        return "OK", 200
 
     elif content:
         threading.Thread(target=process_gemini_message, args=(conv_id, content)).start()
 
     return "OK", 200
 
+# ✅ SOLO AQUÍ VA ESTO (IMPORTANTE)
 if __name__ == "__main__":
+    threading.Thread(target=clean_memory, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
