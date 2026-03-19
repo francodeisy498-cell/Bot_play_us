@@ -63,7 +63,7 @@ NO preguntas si enviar datos. LOS ENVÍAS DIRECTO.
 
 “Perfecto veci ❤️ puedes pagar por:
 Nequi: 3117050514 a nombre de Ang*** Cap***
-Daviplata: 3334005989 a nombre de Dei** Fra***
+Daviplata: 3180376297 a nombre de Dei** Fra***
 Bancolombia: 91240211764 Ale*** Vil****
 Llave: @VILLAMIL982 a nombre de Ale*** Vil***
 
